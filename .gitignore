@@ -7,3 +7,4 @@ __pycache__/
 .omc/
 .venv/
 .ipynb_checkpoints/
+data/

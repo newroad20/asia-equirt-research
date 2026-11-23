@@ -21,32 +21,10 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from research.llm import DEFAULT_MODEL, call_llm, has_credentials, parse_json
+
 HERE = Path(__file__).parent
-DEFAULT_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5-5")
 MAX_SOURCE_CHARS = 150_000  # long transcripts/filings are cut here; the report says so
-
-
-# ---------- LLM call ----------
-def call_llm(system: str, user: str, model: str, max_tokens: int = 8000) -> str:
-    import anthropic  # imported here so --dry-run works without the package
-
-    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
-    resp = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-    return "".join(b.text for b in resp.content if b.type == "text")
-
-
-def parse_json(text: str) -> dict:
-    """Models sometimes wrap JSON in fences or add a sentence; take the outermost {...}."""
-    text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.M).strip()
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end == -1:
-        raise ValueError("No JSON object found in model output:\n" + text[:500])
-    return json.loads(text[start : end + 1])
 
 
 def norm(s: str) -> str:
@@ -187,8 +165,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="offline test with a fake model")
     a = ap.parse_args()
 
-    if not a.dry_run and not os.environ.get("ANTHROPIC_API_KEY"):
-        sys.exit("Set ANTHROPIC_API_KEY first (export ANTHROPIC_API_KEY=...).")
+    if not a.dry_run and not has_credentials():
+        sys.exit("Set ANTHROPIC_API_KEY first (environment variable or a .env file in the repo root).")
     llm = fake_llm if a.dry_run else call_llm
 
     source, names = load_sources(Path(a.dir))
