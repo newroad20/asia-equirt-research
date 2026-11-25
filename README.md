@@ -57,6 +57,9 @@ python run.py --dry-run --company Test --ticker 0000 --dir inputs/demo          
 - 근거 id 검증은 "그 id가 존재한다"까지만 보장합니다. 인용한 근거가 주장을 실제로 뒷받침하는지는 심판 단계와 사람이 판단합니다.
 - 원문이 길면 run.py는 앞 15만 자만 사용합니다 (리포트에 표시됨).
 
+## 만든 과정
+설계 → 독립 리뷰 → 수정 → 재검토 흐름, 타임라인, 결정 기록: [docs/process.md](docs/process.md)
+
 ## 다음 작업 (진행 상황)
 - [x] 01 재무 노트북: Sakura Internet(3778.T), 비교 기업 IIJ(3774.T)·GMO인터넷그룹(9449.T)
 - [x] 02 토론 노트북: 연습 모드로 전체 흐름과 근거 id 자동 걸러내기 확인
