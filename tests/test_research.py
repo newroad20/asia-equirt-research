@@ -130,3 +130,47 @@ def test_markdown_survives_missing_fields():
     d.rounds.append({"bull": "x", "bull_bad_ids": [], "rejected": [{"evidence_ids": None}],
                      "bear": {"rebuttals": [{"evidence_ids": ["GM_FY2026"]}]}})
     assert "GM_FY2026" in d.round_md(d.rounds[0], 1)
+
+
+# ---------- playbooks ----------
+from research import playbook as pbmod  # noqa: E402
+
+
+def test_neocloud_extends_generic_and_overrides_by_id():
+    gen, neo = pbmod.load("generic"), pbmod.load("neocloud")
+    gen_ids = [r["id"] for r in gen["rules"]]
+    neo_ids = [r["id"] for r in neo["rules"]]
+    assert neo_ids[: len(gen_ids)] == gen_ids                      # parent rules kept, in order
+    assert {"depreciation_load", "asset_turn_drop", "capex_intensity"} <= set(neo_ids) - set(gen_ids)
+    gm = {r["id"]: r for r in neo["rules"]}["gm_swing"]
+    assert "감가상각" in gm["question"]                              # child wording replaced parent
+    assert set(gen["metrics"]) < set(neo["metrics"]) and "PPE_TURN" not in gen["metrics"]
+    assert len(neo["bear_notes"]) > len(gen["bear_notes"]) and neo["universe"]
+
+
+def test_every_playbook_loads_and_validates():
+    for name in pbmod.available():
+        pbmod.load(name)
+
+
+def test_playbook_validation_rejects_bad_rule(tmp_path, monkeypatch):
+    (tmp_path / "bad.yaml").write_text(
+        "name: bad\nmetrics: [GM]\nrules:\n  - {id: x, type: rise, metric: PPE_TURN, threshold: 1, level: red, question: q}\n",
+        encoding="utf-8")
+    monkeypatch.setattr(pbmod, "PLAYBOOKS", tmp_path)
+    with pytest.raises(ValueError, match="not in this playbook's metrics"):
+        pbmod.load("bad")
+
+
+def test_generic_playbook_has_no_sector_rules():
+    d = make_data(["2023-03-31", "2024-03-31", "2025-03-31"])
+    r = fin.ratios(fin.line_items(d))
+    r["PPE_TURN"] = [2.0, 1.0, 0.5]                                  # would trip asset_turn_drop
+    assert not any(q["rule"] == "asset_turn_drop" for q in fin.questions(r, playbook="generic"))
+    assert any(q["rule"] == "asset_turn_drop" for q in fin.questions(r, playbook="neocloud"))
+
+
+def test_evidence_limited_to_playbook_metrics():
+    r = fin.ratios(fin.line_items(make_data(["2023-03-31", "2024-03-31"])))
+    gen = pbmod.load("generic")
+    assert {e["metric"] for e in fin.evidence(r, metrics=gen["metrics"])} <= set(gen["metrics"])

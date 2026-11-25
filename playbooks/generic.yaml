@@ -1,0 +1,73 @@
+# Generic playbook: applies to any non-financial company.
+# A sector playbook `extends: generic` and adds/overrides metrics, rules and notes.
+#
+# Rule types (all evaluated in code, see research/playbook.py):
+#   abs_change  : |cur - prev| >= threshold          (year on year, adjacent fiscal years only)
+#   rise        : cur - prev >= threshold
+#   fall        : cur - prev <= -threshold
+#   pct_drop    : cur / prev - 1 <= -threshold        (prev > 0)
+#   above_yoy / below_yoy : every compared year where value >= / < threshold
+#   above / below : latest year only, value >= / < threshold
+#   streak_below : the last `years` values are all < threshold (needs at least 2)
+# Metrics a playbook does not list are still computed, but only listed metrics become evidence
+# and can trigger rules.
+# Question templates can use {fy} {prev} {cur} {delta} {threshold} (numbers already rounded).
+# A rule id must be unique; a sector playbook can override a generic rule by reusing its id.
+
+name: generic
+description: 업종 공통 기준. 매출·이익률·현금흐름·재무 건전성·희석.
+
+metrics: [REV, REV_G, GM, OPM, EBITDA_M, FCF_M, CFO_NI, ROE, ROIC, NET_DEBT_EBITDA, DEBT_EQUITY, INT_COVER, SHARE_G]
+
+rules:
+  - id: gm_swing
+    type: abs_change
+    metric: GM
+    threshold: 3
+    level: yellow
+    question: "{fy} 매출총이익률이 {prev}%→{cur}%로 {delta}%p 변했다. 가격(단가) 때문인가, 원가 때문인가, 매출 구성 변화 때문인가?"
+  - id: opm_swing
+    type: abs_change
+    metric: OPM
+    threshold: 3
+    level: yellow
+    question: "{fy} 영업이익률 {prev}%→{cur}%. 매출총이익 변화와 판관비 중 어느 쪽이 컸나?"
+  - id: dilution
+    type: above_yoy
+    metric: SHARE_G
+    threshold: 3
+    level: yellow
+    question: "{fy} 발행주식수 {cur}%. 증자 자금은 어디에 썼고, 희석을 넘는 이익 증가가 있었나?"
+  - id: revenue_decline
+    type: below_yoy
+    metric: REV_G
+    threshold: 0
+    level: red
+    question: "{fy} 매출 {cur}%. 일시적 요인인가, 수요 둔화인가?"
+  - id: negative_fcf
+    type: below
+    metric: FCF_M
+    threshold: 0
+    level: red
+    question: "{fy} FCF 마진 {cur}%. 마이너스 FCF는 언제 끝나고, 그때까지 자금은 충분한가?"
+  - id: leverage
+    type: above
+    metric: NET_DEBT_EBITDA
+    threshold: 3
+    level: red
+    question: "{fy} 순차입금/EBITDA {cur}x. 금리·만기 구조와 약정(covenant)은?"
+  - id: cash_conversion
+    type: streak_below
+    metric: CFO_NI
+    threshold: 0.8
+    years: 3
+    level: red
+    question: "최근 영업현금흐름이 순이익에 계속 못 미친다({fy} {cur}x). 매출채권·재고·선급금이 쌓이고 있나?"
+
+# Passed to the BEAR PM prompt: what a skeptic should probe in this kind of business.
+bear_notes:
+  - 일회성 이익(보조금, 자산 매각, 평가이익)을 반복 이익처럼 보는지 확인
+  - 한 해 수치를 추세로 늘려 말하는지 확인
+  - 성장이 버는 돈보다 더 많은 자본을 쓰는지(FCF, 증자, 차입) 확인
+
+universe: {}

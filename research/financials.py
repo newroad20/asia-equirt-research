@@ -140,17 +140,17 @@ METRICS = {
     # code: (Korean name, unit, what it tells you)
     "REV": ("매출", "abs", "규모"),
     "REV_G": ("매출 성장률", "%", "수요가 실제로 늘고 있는가"),
-    "GM": ("매출총이익률", "%", "가격 결정력, 원가(전력·GPU 감가상각) 부담"),
+    "GM": ("매출총이익률", "%", "가격 결정력과 원가 부담"),
     "OPM": ("영업이익률", "%", "본업 수익성"),
     "EBITDA_M": ("EBITDA 마진", "%", "감가상각 전 현금 창출력, 설비 산업의 기본 지표"),
     "DA_REV": ("감가상각비/매출", "%", "과거 투자가 비용으로 돌아오는 속도"),
-    "CAPEX_REV": ("설비투자/매출", "%", "투자 강도. 네오클라우드는 GPU 구매로 높아짐"),
+    "CAPEX_REV": ("설비투자/매출", "%", "투자 강도"),
     "CAPEX_DA": ("설비투자/감가상각비", "x", "1보다 크면 유지보수를 넘는 성장 투자"),
     "FCF_M": ("FCF 마진", "%", "투자 후에 남는 현금"),
     "CFO_NI": ("영업현금흐름/순이익", "x", "이익의 질. 1 미만이 계속되면 의심"),
     "ROE": ("ROE", "%", "자기자본 대비 수익성"),
     "ROIC": ("ROIC(세후 영업이익/투하자본)", "%", "투자한 자본이 돈을 버는가"),
-    "PPE_TURN": ("유형자산 회전율(매출/순유형자산)", "x", "GPU·데이터센터 자산이 매출로 얼마나 빨리 바뀌는가"),
+    "PPE_TURN": ("유형자산 회전율(매출/순유형자산)", "x", "설비 자산이 매출로 얼마나 빨리 바뀌는가"),
     "NET_DEBT_EBITDA": ("순차입금/EBITDA", "x", "빚을 감당할 수 있는가"),
     "DEBT_EQUITY": ("부채비율(총차입금/자기자본)", "x", "레버리지"),
     "INT_COVER": ("이자보상배율(영업이익/이자비용)", "x", "이자를 벌어서 낼 수 있는가"),
@@ -201,13 +201,18 @@ def _fmt(v: float, unit: str, currency: str = "") -> str:
     return f"{v:,.0f} {currency}".strip()
 
 
-def evidence(r: pd.DataFrame, currency: str = "", prefix: str = "") -> list[dict]:
-    """Every ratio-year becomes one citable item, id = CODE_FYyyyy (e.g. GM_FY2026)."""
+def evidence(r: pd.DataFrame, currency: str = "", prefix: str = "", metrics: list[str] | None = None) -> list[dict]:
+    """Every ratio-year becomes one citable item, id = CODE_FYyyyy (e.g. GM_FY2026).
+
+    `metrics`: only these metric codes (a playbook's list); default all.
+    """
     out = []
     years = list(r.index)
     keys = period_keys(years)
     ok = _consecutive(years)
     for code, (name, unit, _why) in METRICS.items():
+        if metrics is not None and code not in metrics:
+            continue
         for k, fy in enumerate(years):
             v = r.at[fy, code]
             if pd.isna(v):
@@ -225,58 +230,20 @@ def evidence(r: pd.DataFrame, currency: str = "", prefix: str = "") -> list[dict
 
 
 # ---------- questions the numbers raise ----------
-def questions(r: pd.DataFrame, prefix: str = "") -> list[dict]:
-    """Rule-based red/yellow flags. Each is a question to answer from the filings, not a conclusion.
+def questions(r: pd.DataFrame, prefix: str = "", playbook: str | dict = "generic") -> list[dict]:
+    """Questions the numbers raise, from a sector playbook's rules (playbooks/<name>.yaml).
 
     Pass the same `prefix` you gave evidence() so the question ids match the evidence ids.
     """
-    q = []
-    years = list(r.index)
-    if not years:
-        return q
-    keys = period_keys(years)
-    ok = _consecutive(years)
+    from . import playbook as pbmod  # imported here: playbook.py imports this module
 
-    def add(code, fy, level, text):
-        q.append({"level": level, "evidence_id": f"{prefix}{code}_{keys[fy]}", "question": text})
-
-    for k in range(1, len(years)):
-        if not ok.iloc[k]:  # a missing year in between: year-on-year comparison would mislead
-            continue
-        fy, pf = years[k], years[k - 1]
-        cur, prev = r.loc[fy], r.loc[pf]
-        if abs(cur.GM - prev.GM) >= 3:
-            add("GM", fy, "yellow", f"{fy} 매출총이익률이 {prev.GM:.1f}%→{cur.GM:.1f}%로 {cur.GM - prev.GM:+.1f}%p 변했다. "
-                "가격(단가) 때문인가, 원가(전력·감가상각·외주) 때문인가, 매출 구성 변화 때문인가?")
-        if abs(cur.OPM - prev.OPM) >= 3:
-            add("OPM", fy, "yellow", f"{fy} 영업이익률 {prev.OPM:.1f}%→{cur.OPM:.1f}%. 매출총이익 변화와 판관비 중 어느 쪽이 컸나?")
-        if cur.DA_REV - prev.DA_REV >= 3:
-            add("DA_REV", fy, "yellow", f"{fy} 감가상각비/매출이 {prev.DA_REV:.1f}%→{cur.DA_REV:.1f}%로 올랐다. "
-                "새로 들인 설비(GPU)가 매출을 따라오기 전에 비용부터 반영되는 중인가? 내용연수 가정은 몇 년인가?")
-        if prev.PPE_TURN > 0 and cur.PPE_TURN / prev.PPE_TURN - 1 <= -0.15:
-            add("PPE_TURN", fy, "red", f"{fy} 유형자산 회전율 {prev.PPE_TURN:.2f}x→{cur.PPE_TURN:.2f}x. "
-                "자산이 매출보다 훨씬 빨리 늘었다. 가동률은? 계약된 수요가 있는 투자인가?")
-        if not pd.isna(cur.SHARE_G) and cur.SHARE_G >= 3:
-            add("SHARE_G", fy, "yellow", f"{fy} 발행주식수 {cur.SHARE_G:+.1f}%. 증자 자금은 어디에 썼고, 희석을 넘는 이익 증가가 있었나?")
-        if cur.REV_G <= 0:
-            add("REV_G", fy, "red", f"{fy} 매출 {cur.REV_G:+.1f}%. 일시적 요인인가, 수요 둔화인가?")
-
-    last = years[-1]
-    cur = r.loc[last]
-    if cur.CAPEX_REV >= 30:
-        add("CAPEX_REV", last, "yellow", f"{last} 설비투자가 매출의 {cur.CAPEX_REV:.0f}%다. 투자 회수 기간과 자금 조달(차입·증자·보조금)은?")
-    if cur.FCF_M < 0:
-        add("FCF_M", last, "red", f"{last} FCF 마진 {cur.FCF_M:.1f}%. 마이너스 FCF는 언제 끝나고, 그때까지 자금은 충분한가?")
-    if not pd.isna(cur.NET_DEBT_EBITDA) and cur.NET_DEBT_EBITDA >= 3:
-        add("NET_DEBT_EBITDA", last, "red", f"{last} 순차입금/EBITDA {cur.NET_DEBT_EBITDA:.1f}x. 금리·만기 구조와 약정(covenant)은?")
-    recent = r["CFO_NI"].dropna().tail(3)
-    if len(recent) >= 2 and (recent < 0.8).all():
-        add("CFO_NI", recent.index[-1], "red", "최근 영업현금흐름이 순이익에 계속 못 미친다. 매출채권·선급금이 쌓이고 있나?")
-    return q
+    pb = pbmod.load(playbook) if isinstance(playbook, str) else playbook
+    return pbmod.questions(r, pb, prefix=prefix)
 
 
-def peer_table(tickers: list[str], refresh: bool = False) -> pd.DataFrame:
-    """Latest-year key ratios for several companies side by side."""
+def peer_table(tickers: list[str], refresh: bool = False, metrics: list[str] | None = None) -> pd.DataFrame:
+    """Latest-year key ratios for several companies side by side (`metrics`: a playbook's list)."""
+    metrics = [c for c in (metrics or METRICS) if c != "REV"]
     rows = {}
     for t in tickers:
         try:
@@ -287,5 +254,5 @@ def peer_table(tickers: list[str], refresh: bool = False) -> pd.DataFrame:
             print(f"skip {t}: {e}")
             continue
         name = d["info"].get("shortName") or t
-        rows[f"{name} ({t})"] = {"최근 회계연도": r.index[-1], **{METRICS[c][0]: last[c] for c in METRICS if c != "REV"}}
+        rows[f"{name} ({t})"] = {"최근 회계연도": r.index[-1], **{METRICS[c][0]: last[c] for c in metrics}}
     return pd.DataFrame(rows).T

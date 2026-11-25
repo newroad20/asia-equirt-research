@@ -27,7 +27,8 @@ def load_filing_facts(ticker: str) -> list[dict]:
 
 class Debate:
     def __init__(self, company: str, ticker: str, evidence: list[dict], language: str = "Korean",
-                 dry_run: bool | None = None, model: str | None = None):
+                 dry_run: bool | None = None, model: str | None = None, bear_notes: str = "- (none)"):
+        """bear_notes: sector-specific things a skeptic should probe (playbook.bear_notes_text(pb))."""
         self.company, self.ticker, self.language = company, ticker, language
         self.evidence = {e["id"]: e["text"] for e in evidence}
         self.dry_run = (not has_credentials()) if dry_run is None else dry_run
@@ -36,7 +37,8 @@ class Debate:
         self._messages: list[dict] = []  # raw conversation sent to the model
         self.judgement: dict | None = None
         ev_text = "\n".join(f"[{k}] {v}" for k, v in self.evidence.items())
-        self._bear_system = load_prompt("04_bear_pm.md").format(company=company, evidence=ev_text, language=language)
+        self._bear_system = load_prompt("04_bear_pm.md").format(company=company, evidence=ev_text, language=language,
+                                                                bear_notes=bear_notes)
         self._judge_system = load_prompt("05_judge.md").format(company=company, evidence=ev_text, language=language)
 
     # ----- model calls (real or offline fake) -----

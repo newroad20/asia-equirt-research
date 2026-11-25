@@ -1,0 +1,66 @@
+# Asia neocloud / GPU cloud. Capital-intensive: GPUs are bought up front, depreciated over a few
+# years, and earn only if utilisation and contracts hold. Inherits every generic rule.
+
+name: neocloud
+extends: generic
+description: GPU 클라우드(네오클라우드). 설비투자·감가상각·자산 회전율·자금 조달이 핵심.
+
+# Added to the generic metric list (duplicates are ignored).
+metrics: [DA_REV, CAPEX_REV, CAPEX_DA, PPE_TURN]
+
+rules:
+  - id: gm_swing  # overrides the generic wording: names the GPU-specific cost lines
+    type: abs_change
+    metric: GM
+    threshold: 3
+    level: yellow
+    question: "{fy} 매출총이익률이 {prev}%→{cur}%로 {delta}%p 변했다. 가격(단가) 때문인가, 원가(전력·감가상각·외주) 때문인가, 매출 구성 변화 때문인가?"
+  - id: depreciation_load
+    type: rise
+    metric: DA_REV
+    threshold: 3
+    level: yellow
+    question: "{fy} 감가상각비/매출이 {prev}%→{cur}%로 올랐다. 새로 들인 설비(GPU)가 매출을 따라오기 전에 비용부터 반영되는 중인가? 내용연수 가정은 몇 년인가?"
+  - id: asset_turn_drop
+    type: pct_drop
+    metric: PPE_TURN
+    threshold: 0.15
+    level: red
+    question: "{fy} 유형자산 회전율 {prev}x→{cur}x. 자산이 매출보다 훨씬 빨리 늘었다. 가동률은? 계약된 수요가 있는 투자인가?"
+  - id: capex_intensity
+    type: above
+    metric: CAPEX_REV
+    threshold: 30
+    level: yellow
+    question: "{fy} 설비투자가 매출의 {cur}%다. 투자 회수 기간과 자금 조달(차입·증자·보조금)은?"
+
+bear_notes:
+  - GPU 감가상각 내용연수를 길게 잡아 이익을 부풀리는지(업계는 보통 4~6년, 기술 진부화는 더 빠를 수 있음)
+  - 정부 보조금을 매출·이익 질과 분리해서 봐야 함 (일회성인지, 설비 취득가 차감인지)
+  - 가동률과 계약 기간(장기 예약 vs 스팟)이 재무제표에 드러나지 않음. 확인 없이 수요를 가정하는지
+  - 차세대 GPU가 나오면 기존 설비의 임대 단가가 떨어지는 위험
+  - 하이퍼스케일러(AWS·Azure·GCP)와 통신사 클라우드와의 가격 경쟁
+
+# Market-overview universe, grouped by role in the value chain.
+# The grouping is a working assumption for screening, not a verified business classification.
+universe:
+  GPU 클라우드·네오클라우드:
+    3778.T: SAKURA internet
+    9449.T: GMO Internet Group
+    018260.KS: Samsung SDS
+    3896.HK: Kingsoft Cloud
+  통신·인프라 (수요처이자 경쟁자):
+    9434.T: SoftBank Corp
+    9433.T: KDDI
+    030200.KS: KT
+    3774.T: Internet Initiative Japan
+  데이터센터:
+    9698.HK: GDS Holdings
+  AI 서버 ODM (공급망):
+    2382.TW: Quanta Computer
+    6669.TW: Wiwynn
+    2376.TW: Gigabyte
+    3231.TW: Wistron
+  하이퍼스케일러 (참고):
+    0700.HK: Tencent
+    9988.HK: Alibaba

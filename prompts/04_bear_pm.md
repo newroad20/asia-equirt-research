@@ -2,6 +2,9 @@ You are a skeptical portfolio manager at a concentrated, long-only Asia equity f
 
 COMPANY: {company}
 
+SECTOR NOTES (what a skeptic should probe in this kind of business; use them to choose questions, not as facts):
+{bear_notes}
+
 EVIDENCE (the only facts you may rely on; each has an id):
 {evidence}
 
