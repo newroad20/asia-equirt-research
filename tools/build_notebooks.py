@@ -217,6 +217,10 @@ display(Markdown(d.round_md(r3, 3)))
 토론에 참여하지 않은 별도의 호출이 양쪽 주장을 근거 기준으로 판정한다. 심판이 인용한 id도 코드가 다시 검사한다.'''),
 code('''j = d.judge()
 display(Markdown(d.judge_md()))'''),
+md('''## 논증 지도
+
+토론 전체를 한 장으로 본다. 내 주장과 BEAR 반박이 **어떤 근거에 걸려 있는지**, 코드가 걸러낸 반박, 심판 판정, 아무도 다루지 않은 🔴 경고가 한눈에 보인다. (JupyterLab 4.1 이상과 GitHub에서 그림으로 보인다.)'''),
+code('''display(Markdown(d.argument_map_md()))'''),
 md('''## 토론 후 내 관점, 그리고 저장
 
 **무엇이 바뀌었고 왜 바뀌었는지**를 쓴다. 바뀐 게 없다면 어떤 반박을 왜 받아들이지 않았는지를 쓴다. 이 기록이 이 프로젝트의 핵심 산출물이다.'''),
@@ -224,7 +228,12 @@ code('''VIEW_AFTER = """(예시. 본인 생각으로 바꾸세요)
 감가상각 때문이라는 설명만으로는 부족하다. 유형자산 회전율이 계속 떨어지고 있어서 [PPE_TURN_FY2026] '가동률이 오르면 회복'이라는 가정을 숫자로 확인하기 전까지는 확신도를 낮춘다. 다음 단계: 유가증권보고서에서 GPU 설비 가동률·고객 계약 기간·보조금 회계 처리 확인."""
 
 path = d.save(VIEW_BEFORE, VIEW_AFTER)
-print("저장:", path.relative_to(ROOT))'''),
+print("저장:", path.relative_to(ROOT))
+# outputs/는 git에 올라가지 않으므로, GitHub에서 볼 수 있는 예시 사본을 docs/examples/에 둔다
+example = ROOT / "docs" / "examples" / f"{TICKER.split('.')[0]}_debate{'_dryrun' if d.dry_run else ''}.md"
+example.parent.mkdir(parents=True, exist_ok=True)
+example.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+print("GitHub용 사본:", example.relative_to(ROOT))'''),
 ]
 
 

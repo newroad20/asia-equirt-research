@@ -12,7 +12,7 @@ playbooks/*.yaml ──┐ (섹터별: 볼 지표, 경고 규칙, 반대 논거 
                                 │
 run.py 공시 원문 → 인용 검증된 팩트(F1…) ┤
                                 ▼
-02 토론: 나(BULL) ↔ AI PM(BEAR) → 독립 심판 → 토론 전/후 내 관점 기록
+02 토론: 나(BULL) ↔ AI PM(BEAR) → 독립 심판 → 논증 지도 → 토론 전/후 내 관점 기록
 03 시황: 밸류체인별 주가 성과·밸류에이션·헤드라인 (사람이 읽는 참고 자료)
 ```
 
@@ -20,7 +20,7 @@ run.py 공시 원문 → 인용 검증된 팩트(F1…) ┤
 |---|---|---|
 | [playbooks/](playbooks/) | `generic.yaml`(업종 공통) + `neocloud.yaml`(`extends: generic`). 지표 목록, 경고 규칙, BEAR가 파고들 섹터 특유의 함정, 시황 종목군 | 불러올 때 지표·규칙 유형·id 중복을 검사 |
 | [notebooks/01_fundamentals.ipynb](notebooks/01_fundamentals.ipynb) | 연간 재무제표 수집(yfinance) → 지표 → 차트 → 플레이북 규칙으로 질문 생성 → 비교 기업 표 | 지표마다 근거 id(`GM_FY2026` 등), 중복 시 오류 |
-| [notebooks/02_debate.ipynb](notebooks/02_debate.ipynb) | 내가 BULL, AI가 BEAR PM으로 토론 → 독립 심판이 채점 → 토론 전후 관점 저장 | 근거 id가 없거나 틀린 반박·판정은 자동으로 걸러냄. 내가 인용한 id도 검사. 01의 🔴 경고 중 토론에서 다루지 않은 것은 '풀리지 않은 질문'에 자동 추가 |
+| [notebooks/02_debate.ipynb](notebooks/02_debate.ipynb) | 내가 BULL, AI가 BEAR PM으로 토론 → 독립 심판이 채점 → 논증 지도(Mermaid) → 토론 전후 관점 저장. 예시: [docs/examples/3778_debate_dryrun.md](docs/examples/3778_debate_dryrun.md) | 근거 id가 없거나 틀린 반박·판정은 자동으로 걸러냄. 내가 인용한 id도 검사. 01의 🔴 경고 중 토론에서 다루지 않은 것은 '풀리지 않은 질문'에 자동 추가 |
 | [notebooks/03_market.ipynb](notebooks/03_market.ipynb) | 밸류체인 역할별 주가 성과(자국 지수 대비), 1년 주가 흐름, 밸류에이션, 최근 헤드라인 | 이상한 밸류에이션 값(PER 100배 초과·음수)에 확인 표시 |
 | [run.py](run.py) | 공시·실적발표 원문(.txt) → 팩트 추출 → 논거 초안 → 회의적 검토 | 인용문이 원문에 실제로 있는지 확인. 02에서 `F1`, `F2` … 근거로 재사용 |
 | [research/](research/) | 공용 모듈: financials, playbook, market, debate, llm, net | |
@@ -64,6 +64,7 @@ python run.py --dry-run --company Test --ticker 0000 --dir inputs/demo          
 - [x] 섹터 플레이북 분리 (generic, neocloud), 리팩터링 전후 3778.T 질문·근거 동일 확인
 - [x] 03 시황 노트북: 네오클라우드 밸류체인 15개 종목
 - [x] 최종 구조 리뷰 반영 (계산 오류 3건, 01 질문 → 02 토론 연결): [docs/code_review_2026-11-25.md](docs/code_review_2026-11-25.md). 남은 항목도 같은 문서에
+- [x] 논증 지도: 주장 → 근거 ← 반박, 걸러진 반박, 심판 판정, 다루지 않은 경고를 한 장의 그림으로 (GitHub에서 바로 보임)
 - [ ] `.env`에 API 키를 넣고 02 노트북을 실제 Claude로 실행 (지금 저장된 출력은 연습 모드 결과)
 - [ ] 02 노트북의 예시 관점·논거를 **본인 문장으로** 교체 (지원서 투자 아이디어 제출물이 됨)
 - [ ] 사쿠라인터넷 유가증권보고서·실적발표 원문을 `inputs/3778/`에 넣고 run.py 실행 → `F` 팩트를 토론 근거에 추가

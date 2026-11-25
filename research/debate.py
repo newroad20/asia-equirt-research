@@ -171,6 +171,69 @@ class Debate:
         L += ["", "### 다음 리서치 단계"] + [f"{k}. {s}" for k, s in enumerate(j.get("next_steps") or [], 1)]
         return "\n".join(L)
 
+    def argument_map(self, width: int = 48) -> str:
+        """Mermaid flowchart of the debate: pitch -> cited evidence <- BEAR rebuttals, judge verdicts,
+        rebuttals the code rejected, and red flags nobody addressed. Renders in JupyterLab 4.1+ and on GitHub."""
+        def label(s) -> str:
+            s = " ".join(str(s or "").split())
+            s = s if len(s) <= width else s[: width - 1] + "…"
+            return '"' + s.replace('"', "#quot;").replace("[", "(").replace("]", ")") + '"'
+
+        L = ["flowchart LR",
+             "classDef bull fill:#dbe9fb,stroke:#2a78d6,color:#111",
+             "classDef bear fill:#fde3d6,stroke:#eb6834,color:#111",
+             "classDef ev fill:#f4f4f4,stroke:#888,color:#111",
+             "classDef supported fill:#d4f2e5,stroke:#1baf7a,color:#111",
+             "classDef overreach fill:#fdf0c8,stroke:#eda100,color:#111",
+             "classDef unsupported fill:#fbd5d5,stroke:#d33,color:#111",
+             "classDef rejected fill:#fff,stroke:#d33,stroke-dasharray:4 3,color:#777",
+             "classDef flag fill:#fff,stroke:#d33,stroke-width:2px,stroke-dasharray:4 3,color:#b00"]
+        ev_used: set[str] = set()
+
+        def ev(i: str) -> str:
+            ev_used.add(i)
+            return f"E_{re.sub(r'[^A-Za-z0-9_]', '_', i)}"
+
+        for n, r in enumerate(self.rounds, 1):
+            b = f"B{n}"
+            L.append(f"subgraph R{n}[\"Round {n}\"]")
+            L.append(f"{b}[{label('BULL: ' + r['bull'])}]:::bull")
+            for k, x in enumerate(r["bear"].get("rebuttals", []), 1):
+                L.append(f"{b}_X{k}[{label('BEAR · ' + str(x.get('target', '')) + ': ' + str(x.get('point', '')))}]:::bear")
+            for k, x in enumerate(r["rejected"], 1):
+                L.append(f"{b}_J{k}[{label('걸러진 반박: ' + str(x.get('point', '')))}]:::rejected")
+            L.append("end")
+            for i in dict.fromkeys(ID_IN_TEXT.findall(r["bull"])):
+                if i in self.evidence:
+                    L.append(f"{b} -->|인용| {ev(i)}")
+            for k, x in enumerate(r["bear"].get("rebuttals", []), 1):
+                L.append(f"{b}_X{k} -->|반박| {b}")
+                L += [f"{b}_X{k} -->|근거| {ev(i)}" for i in x.get("evidence_ids") or [] if i in self.evidence]
+            for k, _ in enumerate(r["rejected"], 1):
+                L.append(f"{b}_J{k} -.->|근거 없음·틀린 id| {b}")
+        j = self.judgement or {}
+        claims = [(s, c) for s in ("bull_claims", "bear_claims") for c in j.get(s) or []]
+        if claims:
+            L.append('subgraph JD["독립 심판 판정"]')
+            for k, (side, c) in enumerate(claims, 1):
+                v = c.get("verdict") if c.get("verdict") in ("supported", "overreach", "unsupported") else "unsupported"
+                who = "BULL" if side == "bull_claims" else "BEAR"
+                L.append(f"C{k}[{label(f'{who} · {v}: ' + str(c.get('claim', '')))}]:::{v}")
+            L.append("end")
+            for k, (_, c) in enumerate(claims, 1):
+                L += [f"C{k} -.-> {ev(i)}" for i in c.get("evidence_ids") or [] if i in self.evidence]
+        for k, q in enumerate(self.unaddressed_red_flags(), 1):
+            L.append(f"Q{k}[{label('다루지 않은 경고: ' + q['question'])}]:::flag")
+            if q["evidence_id"] in self.evidence:
+                L.append(f"Q{k} -.-> {ev(q['evidence_id'])}")
+        L += [f"{ev(i)}[{label(i + ': ' + self.evidence[i])}]:::ev" for i in sorted(ev_used)]
+        return "\n".join(L)
+
+    def argument_map_md(self) -> str:
+        legend = ("파랑 = 내 주장, 주황 = BEAR 반박, 회색 = 근거, 점선 빨강 = 코드가 걸러낸 반박·다루지 않은 경고, "
+                  "심판 판정: 초록 = 지지됨, 노랑 = 과장, 빨강 = 근거 없음")
+        return "\n".join(["## 논증 지도", "", f"*{legend}*", "", "```mermaid", self.argument_map(), "```", ""])
+
     def to_markdown(self, view_before: str = "", view_after: str = "") -> str:
         mode = "연습 모드(가짜 응답, API 호출 없음)" if self.dry_run else "Claude API"
         L = [f"# {self.company} ({self.ticker}) 투자 논거 토론", "",
@@ -180,6 +243,8 @@ class Debate:
         L += ["## 토론", ""] + [self.round_md(r, n) for n, r in enumerate(self.rounds, 1)]
         if self.judgement:
             L += [self.judge_md(), ""]
+        if self.rounds:
+            L += [self.argument_map_md()]
         if view_after:
             L += ["## 토론 후 내 관점 (무엇이 바뀌었고 왜)", view_after, ""]
         L += ["## 사용한 근거", ""] + [f"- `{k}` {v}" for k, v in self.evidence.items()]

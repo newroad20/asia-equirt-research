@@ -247,3 +247,16 @@ def test_red_flags_reach_debate_and_unaddressed_ones_become_unresolved():
 def test_duplicate_evidence_ids_raise():
     with pytest.raises(ValueError, match="Duplicate"):
         Debate("T", "T", [{"id": "A", "text": "1"}, {"id": "A", "text": "2"}], dry_run=True)
+
+
+def test_argument_map_marks_rejected_flags_and_verdicts():
+    qs = [{"level": "red", "rule": "r", "evidence_id": "PPE_TURN_FY2026", "question": "회전율 하락?"}]
+    ev = [{"id": i, "text": f'{i} "값"'} for i in ("GM_FY2026", "FCF_M_FY2026", "PPE_TURN_FY2026")]
+    d = Debate("Test", "TEST", ev, dry_run=True, questions=qs)
+    d.bull("마진 회복 [GM_FY2026] [NOPE]")
+    d.judge()
+    m = d.argument_map()
+    assert m.startswith("flowchart LR") and "B1 -->|인용| E_GM_FY2026" in m
+    assert ":::rejected" in m and ":::flag" in m and ":::supported" in m
+    assert "E_NOPE" not in m and '"값"' not in m                       # unknown ids skipped, quotes escaped
+    assert "```mermaid" in d.to_markdown()
