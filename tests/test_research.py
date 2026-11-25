@@ -148,6 +148,21 @@ def test_neocloud_extends_generic_and_overrides_by_id():
     assert len(neo["bear_notes"]) > len(gen["bear_notes"]) and neo["universe"]
 
 
+def test_semiconductor_inventory_days_rule():
+    d = make_data(["2023-12-31", "2024-12-31"], revenue=[100.0, 100.0])  # cost of sales = 70
+    d["balance"]["Inventory"] = [7.0, 14.0]
+    r = fin.ratios(fin.line_items(d))
+    assert r["INV_DAYS"].tolist() == pytest.approx([36.5, 73.0])
+    ev = {e["id"]: e["text"] for e in fin.evidence(r, "KRW", metrics=pbmod.load("semiconductor")["metrics"])}
+    assert "73일" in ev["INV_DAYS_FY2024"]
+    hits = [q for q in fin.questions(r, playbook="semiconductor") if q["rule"] == "inventory_build"]
+    assert [q["evidence_id"] for q in hits] == ["INV_DAYS_FY2024"]
+    d["balance"] = d["balance"].drop(columns="Inventory")  # no inventory reported: no evidence, no question
+    r = fin.ratios(fin.line_items(d))
+    assert r["INV_DAYS"].isna().all()
+    assert not any(q["rule"] == "inventory_build" for q in fin.questions(r, playbook="semiconductor"))
+
+
 def test_every_playbook_loads_and_validates():
     for name in pbmod.available():
         pbmod.load(name)
@@ -260,3 +275,25 @@ def test_argument_map_marks_rejected_flags_and_verdicts():
     assert ":::rejected" in m and ":::flag" in m and ":::supported" in m
     assert "E_NOPE" not in m and '"값"' not in m                       # unknown ids skipped, quotes escaped
     assert "```mermaid" in d.to_markdown()
+
+
+def test_claude_code_backend(monkeypatch):
+    from types import SimpleNamespace
+    from research import llm
+    monkeypatch.setenv("LLM_BACKEND", "claude-code")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "must-not-be-passed")
+    monkeypatch.setattr(llm.shutil, "which", lambda _: "/bin/claude")
+    reply, seen = {"result": "ok"}, {}
+
+    def fake_run(cmd, **kw):
+        seen.update(kw)
+        return SimpleNamespace(returncode=0, stdout=json.dumps(reply), stderr="")
+
+    monkeypatch.setattr(llm.subprocess, "run", fake_run)
+    assert llm.has_credentials() and llm.call_llm("sys", "hello") == "ok"
+    assert seen["input"] == "hello" and "ANTHROPIC_API_KEY" not in seen["env"]
+    llm.chat("sys", [{"role": "user", "content": "q1"}, {"role": "assistant", "content": "a1"}, {"role": "user", "content": "q2"}])
+    assert seen["input"].index("q1") < seen["input"].index("a1") < seen["input"].index("q2")
+    reply = {"result": "usage limit reached", "is_error": True}
+    with pytest.raises(RuntimeError, match="usage limit"):
+        llm.call_llm("sys", "hello")

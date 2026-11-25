@@ -1,0 +1,58 @@
+# Asia semiconductors: memory, foundry, equipment. Cyclical and capital-intensive: inventory turns
+# before margins do. Inherits every generic rule.
+
+name: semiconductor
+extends: generic
+description: 반도체(메모리·파운드리·장비). 재고 사이클, 설비투자, 감가상각이 핵심.
+
+metrics: [INV_DAYS, DA_REV, CAPEX_REV, CAPEX_DA, PPE_TURN]
+
+# Thresholds are screening assumptions, not industry standards.
+rules:
+  - id: gm_swing  # overrides the generic wording: names the chip-specific drivers
+    type: abs_change
+    metric: GM
+    threshold: 3
+    level: yellow
+    question: "{fy} 매출총이익률이 {prev}%→{cur}%로 {delta}%p 변했다. 판매단가(ASP), 가동률, 제품 구성, 재고평가손실(환입) 중 무엇 때문인가?"
+  - id: inventory_build
+    type: rise
+    metric: INV_DAYS
+    threshold: 20
+    level: red
+    question: "{fy} 재고일수가 {prev}일→{cur}일로 늘었다. 수요 둔화인가, 출하 전 선제 생산인가? 원재료·재공품·완제품 중 무엇이 늘었고 평가손실 위험은?"
+  - id: capex_intensity
+    type: above
+    metric: CAPEX_REV
+    threshold: 30
+    level: yellow
+    question: "{fy} 설비투자가 매출의 {cur}%다. 미세공정 전환인가, 증설인가? 업계 공급이 함께 늘고 있지는 않은가?"
+  - id: asset_turn_drop
+    type: pct_drop
+    metric: PPE_TURN
+    threshold: 0.15
+    level: red
+    question: "{fy} 유형자산 회전율 {prev}x→{cur}x. 가동률 하락인가, 양산 전 설비가 먼저 잡힌 것인가?"
+
+bear_notes:
+  - 사이클 고점의 이익률을 정상 이익률로 보는지 확인 (한 해가 아니라 사이클 전체 평균과 비교)
+  - 재고평가손실 환입이 매출총이익률 개선을 부풀렸는지 확인
+  - 경쟁사 증설이 동시에 진행되어 공급 과잉이 되는 위험
+  - 소수 고객(AI 가속기·스마트폰)에 매출이 몰려 있는지, 장기 계약의 가격·물량이 확정인지 확인
+  - 수출 규제와 중국 매출 비중, 환율 효과를 본업 성장과 분리해서 봐야 함
+
+# Market-overview universe. The grouping is a working assumption for screening, not a verified classification.
+universe:
+  메모리:
+    000660.KS: SK hynix
+    005930.KS: Samsung Electronics
+  파운드리:
+    2330.TW: TSMC
+    2303.TW: UMC
+    0981.HK: SMIC
+  장비:
+    8035.T: Tokyo Electron
+    6857.T: Advantest
+    042700.KS: Hanmi Semiconductor
+  팹리스:
+    2454.TW: MediaTek

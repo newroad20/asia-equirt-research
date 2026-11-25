@@ -37,6 +37,7 @@ ROWS = {
     "net_ppe": ["Net PPE"],
     "construction_in_progress": ["Construction In Progress"],
     "receivables": ["Accounts Receivable"],
+    "inventory": ["Inventory"],
     "invested_capital": ["Invested Capital"],
     "shares": ["Ordinary Shares Number", "Share Issued"],
 }
@@ -151,6 +152,7 @@ METRICS = {
     "ROE": ("ROE", "%", "자기자본 대비 수익성"),
     "ROIC": ("ROIC(세후 영업이익/투하자본)", "%", "투자한 자본이 돈을 버는가"),
     "PPE_TURN": ("유형자산 회전율(매출/순유형자산)", "x", "설비 자산이 매출로 얼마나 빨리 바뀌는가"),
+    "INV_DAYS": ("재고일수(기말 재고/매출원가)", "일", "팔리지 않은 물건이 쌓이는가"),
     "NET_DEBT_EBITDA": ("순차입금/EBITDA", "x", "빚을 감당할 수 있는가"),
     "DEBT_EQUITY": ("부채비율(총차입금/자기자본)", "x", "레버리지"),
     "INT_COVER": ("이자보상배율(영업이익/이자비용)", "x", "이자를 벌어서 낼 수 있는가"),
@@ -179,6 +181,8 @@ def ratios(items: pd.DataFrame) -> pd.DataFrame:
     r["ROE"] = i["net_income"] / avg(i["equity"]) * 100
     r["ROIC"] = i["operating_income"] * (1 - tax_rate) / avg(i["invested_capital"]) * 100
     r["PPE_TURN"] = i["revenue"] / i["net_ppe"]
+    cogs = i["revenue"] - i["gross_profit"]
+    r["INV_DAYS"] = (i["inventory"] / cogs * 365).where(cogs > 0)
     r["NET_DEBT_EBITDA"] = (net_debt / i["ebitda"]).where(i["ebitda"] > 0)
     r["DEBT_EQUITY"] = i["total_debt"] / i["equity"]
     r["INT_COVER"] = (i["operating_income"] / i["interest_expense"].abs()).where(i["interest_expense"].abs() > 0)
@@ -195,6 +199,8 @@ def _fmt(v: float, unit: str, currency: str = "") -> str:
         return f"{v:.1f}%"
     if unit == "x":
         return f"{v:.2f}x"
+    if unit == "일":
+        return f"{v:.0f}일"
     for div, suf in ((1e12, "조"), (1e8, "억")):
         if abs(v) >= div:
             return f"{v / div:,.1f}{suf} {currency}".strip()

@@ -166,7 +166,8 @@ def main():
     a = ap.parse_args()
 
     if not a.dry_run and not has_credentials():
-        sys.exit("Set ANTHROPIC_API_KEY first (environment variable or a .env file in the repo root).")
+        sys.exit("Set ANTHROPIC_API_KEY, or LLM_BACKEND=claude-code with the claude CLI installed "
+                 "(environment variable or a .env file in the repo root).")
     llm = fake_llm if a.dry_run else call_llm
 
     source, names = load_sources(Path(a.dir))

@@ -2,6 +2,9 @@
 import json
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -17,7 +20,38 @@ DEFAULT_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5-5")
 _client = None
 
 
+def _use_cli() -> bool:
+    """LLM_BACKEND=claude-code: use the logged-in Claude Code CLI instead of an API key."""
+    return os.environ.get("LLM_BACKEND") == "claude-code"
+
+
+def _chat_cli(system: str, messages: list[dict], model: str, effort: str) -> str:
+    if len(messages) == 1:
+        prompt = messages[0]["content"]
+    else:  # the CLI takes one prompt, so earlier turns go in as a transcript
+        turns = "\n\n".join(f"<{m['role']}>\n{m['content']}\n</{m['role']}>" for m in messages)
+        prompt = f"Conversation so far. Reply to the last user turn, as the assistant.\n\n{turns}"
+    # without the keys the CLI uses the Claude login, never API billing
+    env = {k: v for k, v in os.environ.items() if k not in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")}
+    # no tools, no user settings, empty folder: the model sees only the prompt and the evidence
+    with tempfile.TemporaryDirectory() as cwd:
+        p = subprocess.run(
+            ["claude", "-p", "--safe-mode", "--strict-mcp-config", "--tools", "", "--no-session-persistence",
+             "--system-prompt", system, "--model", model, "--effort", effort, "--output-format", "json"],
+            input=prompt, capture_output=True, text=True, encoding="utf-8", env=env, cwd=cwd, timeout=900)
+    try:
+        out = json.loads(p.stdout)
+    except ValueError:
+        out = {}
+    if p.returncode or out.get("is_error") or not out.get("result") or out.get("stop_reason") in ("refusal", "max_tokens"):
+        detail = out.get("result") or out.get("stop_reason") or p.stderr or p.stdout
+        raise RuntimeError(f"Claude Code call failed: {str(detail)[:500]}")
+    return out["result"]
+
+
 def has_credentials() -> bool:
+    if _use_cli():
+        return shutil.which("claude") is not None
     return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
 
 
@@ -28,6 +62,8 @@ def chat(system: str, messages: list[dict], model: str = DEFAULT_MODEL,
     Uses server-side refusal fallbacks: if the model declines, the API retries on a fallback
     model inside the same call. A refusal from the whole chain raises an error.
     """
+    if _use_cli():
+        return _chat_cli(system, messages, model, effort)  # max_tokens is not configurable here
     global _client
     if _client is None:
         from .net import anthropic_client

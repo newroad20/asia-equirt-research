@@ -235,7 +235,7 @@ class Debate:
         return "\n".join(["## 논증 지도", "", f"*{legend}*", "", "```mermaid", self.argument_map(), "```", ""])
 
     def to_markdown(self, view_before: str = "", view_after: str = "") -> str:
-        mode = "연습 모드(가짜 응답, API 호출 없음)" if self.dry_run else "Claude API"
+        mode = "연습 모드(가짜 응답, API 호출 없음)" if self.dry_run else "Claude"
         L = [f"# {self.company} ({self.ticker}) 투자 논거 토론", "",
              f"*{datetime.now():%Y-%m-%d %H:%M} · {mode} · 최종 투자 판단은 사람이 합니다.*", ""]
         if view_before:
