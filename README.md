@@ -43,5 +43,5 @@ python run.py --dry-run --company Test --ticker 0000 --dir inputs/demo          
 - [ ] 영문 원문(실적발표 transcript, 20-F 등) 한 건 포함 → 영어 원문 소화 역량 증거
 - [ ] 아시아 네오클라우드 비교군 확정 (한국·대만 후보 조사)
 - [ ] 한국 종목용 DART API 연동 (Yahoo 대신 공시 원문 숫자)
-- [ ] 코드 리뷰 결과 반영: [docs/code_review_2026-11-23.md](docs/code_review_2026-11-23.md) (높음 3건부터)
-- [ ] 회전율 차트 라벨 여백 수정 반영: `python tools/build_notebooks.py` 후 01 노트북 재실행
+- [x] 코드 리뷰 10건 수정 + 회귀 테스트: [docs/code_review_2026-11-23.md](docs/code_review_2026-11-23.md), `python -m pytest tests -q`
+- [x] 회전율 차트 라벨 여백 수정 반영

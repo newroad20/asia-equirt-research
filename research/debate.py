@@ -93,11 +93,17 @@ class Debate:
         msg = [{"role": "user", "content": "DEBATE TRANSCRIPT:\n\n" + "\n\n".join(transcript)}]
         j = parse_json(self._call(self._judge_system, msg))
         for side in ("bull_claims", "bear_claims"):
-            for c in j.get(side, []):
-                unknown = [i for i in c.get("evidence_ids", []) if i not in self.evidence]
-                if unknown:
+            j[side] = j.get(side) or []
+            for c in j[side]:
+                ids = c.get("evidence_ids") or []
+                c["evidence_ids"] = ids
+                unknown = [i for i in ids if i not in self.evidence]
+                if not ids:
                     c["verdict"] = "unsupported"
-                    c["comment"] = f"[자동 검증] 존재하지 않는 근거 id: {unknown}. " + c.get("comment", "")
+                    c["comment"] = "[자동 검증] 인용한 근거가 없음. " + (c.get("comment") or "")
+                elif unknown:
+                    c["verdict"] = "unsupported"
+                    c["comment"] = f"[자동 검증] 존재하지 않는 근거 id: {unknown}. " + (c.get("comment") or "")
         self.judgement = j
         return j
 
@@ -110,11 +116,11 @@ class Debate:
         L += ["**BEAR (AI PM)**", ""]
         for x in b.get("rebuttals", []):
             ids = ", ".join(x["evidence_ids"])
-            L.append(f"- **{x.get('target', '')}**: {x['point']}  \n  근거: {ids}")
+            L.append(f"- **{x.get('target', '')}**: {x.get('point', '')}  \n  근거: {ids}")
             L += [f"    - `{i}` {self.evidence[i]}" for i in x["evidence_ids"]]
         if r["rejected"]:
             L += ["", f"*근거 id가 없거나 틀려서 자동으로 걸러진 반박 {len(r['rejected'])}개:*"]
-            L += [f"- ~~{x['point']}~~ (인용: {x.get('evidence_ids')})" for x in r["rejected"]]
+            L += [f"- ~~{x.get('point', '')}~~ (인용: {x.get('evidence_ids')})" for x in r["rejected"]]
         if b.get("concede"):
             L += ["", "**인정한 부분:** " + " / ".join(b["concede"])]
         if b.get("data_requests"):
@@ -126,16 +132,19 @@ class Debate:
         j = self.judgement or {}
         if not j:
             return ""
-        L = ["## 독립 심판 평가", "", f"근거 규율 점수: BULL {j.get('scores', {}).get('bull')}/5, BEAR {j.get('scores', {}).get('bear')}/5", ""]
+        cell = lambda s: str(s or "").replace("|", "/").replace("\n", " ")  # keep the table intact
+        scores = j.get("scores") or {}
+        L = ["## 독립 심판 평가", "", f"근거 규율 점수: BULL {scores.get('bull', '-')}/5, BEAR {scores.get('bear', '-')}/5", ""]
         for side, title in (("bull_claims", "BULL 주장"), ("bear_claims", "BEAR 주장")):
             L += [f"### {title}", "| 주장 | 근거 | 판정 | 코멘트 |", "|---|---|---|---|"]
-            for c in j.get(side, []):
-                L.append(f"| {c['claim']} | {', '.join(c.get('evidence_ids', []))} | {c['verdict']} | {c.get('comment', '')} |")
+            for c in j.get(side) or []:
+                L.append(f"| {cell(c.get('claim'))} | {', '.join(c.get('evidence_ids') or [])} | "
+                         f"{cell(c.get('verdict'))} | {cell(c.get('comment'))} |")
             L.append("")
         L += [f"**가장 강한 BULL 논거:** {j.get('strongest_bull_point', '')}", "",
               f"**가장 강한 BEAR 논거:** {j.get('strongest_bear_point', '')}", "", "### 아직 풀리지 않은 질문"]
-        L += [f"- {u['question']} → 확인할 곳: {u['source_to_check']}" for u in j.get("unresolved", [])]
-        L += ["", "### 다음 리서치 단계"] + [f"{k}. {s}" for k, s in enumerate(j.get("next_steps", []), 1)]
+        L += [f"- {u.get('question', '')} → 확인할 곳: {u.get('source_to_check', '')}" for u in j.get("unresolved") or []]
+        L += ["", "### 다음 리서치 단계"] + [f"{k}. {s}" for k, s in enumerate(j.get("next_steps") or [], 1)]
         return "\n".join(L)
 
     def to_markdown(self, view_before: str = "", view_after: str = "") -> str:

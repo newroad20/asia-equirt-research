@@ -93,9 +93,12 @@ def line_items(data: dict) -> pd.DataFrame:
     merged = merged.loc[:, ~merged.columns.duplicated()]
     items = pd.DataFrame({k: _pick(merged, v) for k, v in ROWS.items()})
     items["capex"] = -items["capex"].abs()  # Yahoo reports capex negative; force the sign
-    if items["fcf"].isna().all():
-        items["fcf"] = items["cfo"] + items["capex"]
-    items = items.dropna(subset=["revenue"])
+    items["fcf"] = items["fcf"].fillna(items["cfo"] + items["capex"])  # fill only the missing years
+    # Keep years that have only balance-sheet data: they are needed for averages (ROE, ROIC).
+    # ratios() drops years without revenue at the end.
+    items = items.dropna(how="all")
+    if items["revenue"].isna().all():
+        raise ValueError("No revenue in the returned statements; cannot compute ratios.")
     items.index = [fy_label(d) for d in items.index]
     items.index.name = "fiscal_year"
     return items
@@ -105,6 +108,31 @@ def fy_label(d) -> str:
     """FY named by the calendar year it ends in, with the month: FY2026(03) = year ending Mar-2026."""
     d = pd.Timestamp(d)
     return f"FY{d.year}({d.month:02d})"
+
+
+def _months(label: str) -> int:
+    """'FY2026(03)' -> months since year 0, to check whether two periods are consecutive."""
+    year, month = label[2:6], label[7:9]
+    return int(year) * 12 + int(month)
+
+
+def _consecutive(index) -> pd.Series:
+    """True where the row is about 12 months after the previous row (a fiscal-year-end change
+    gives 9-15 months, which still counts). False for the first row and across missing years."""
+    m = pd.Series([_months(x) for x in index], index=index)
+    gap = m.diff()
+    return (gap >= 9) & (gap <= 15)
+
+
+def period_keys(index) -> dict:
+    """Short period key used in evidence ids: 'FY2026(03)' -> 'FY2026'.
+
+    If two periods would share a key (a company changed its fiscal year-end), those keep the
+    month ('FY2024M03', 'FY2024M12') so ids never collide.
+    """
+    short = {fy: fy.split("(")[0] for fy in index}
+    counts = pd.Series(list(short.values())).value_counts()
+    return {fy: s if counts[s] == 1 else f"{s}M{fy[7:9]}" for fy, s in short.items()}
 
 
 # ---------- ratios ----------
@@ -132,12 +160,14 @@ METRICS = {
 
 def ratios(items: pd.DataFrame) -> pd.DataFrame:
     i = items
-    avg = lambda s: (s + s.shift(1)) / 2
+    ok = _consecutive(i.index)  # averages and growth only across adjacent fiscal years
+    avg = lambda s: ((s + s.shift(1)) / 2).where(ok)
+    growth = lambda s: (s / s.shift(1) - 1).where(ok) * 100
     tax_rate = (i["tax"] / i["pretax_income"]).clip(0, 0.5).fillna(0.3)
     net_debt = i["total_debt"] - i["cash"]
     r = pd.DataFrame(index=i.index)
     r["REV"] = i["revenue"]
-    r["REV_G"] = i["revenue"].pct_change() * 100
+    r["REV_G"] = growth(i["revenue"])
     r["GM"] = i["gross_profit"] / i["revenue"] * 100
     r["OPM"] = i["operating_income"] / i["revenue"] * 100
     r["EBITDA_M"] = i["ebitda"] / i["revenue"] * 100
@@ -152,8 +182,9 @@ def ratios(items: pd.DataFrame) -> pd.DataFrame:
     r["NET_DEBT_EBITDA"] = (net_debt / i["ebitda"]).where(i["ebitda"] > 0)
     r["DEBT_EQUITY"] = i["total_debt"] / i["equity"]
     r["INT_COVER"] = (i["operating_income"] / i["interest_expense"].abs()).where(i["interest_expense"].abs() > 0)
-    r["SHARE_G"] = i["shares"].pct_change() * 100
-    return r.replace([np.inf, -np.inf], np.nan)
+    r["SHARE_G"] = growth(i["shares"])
+    r = r.replace([np.inf, -np.inf], np.nan)
+    return r[i["revenue"].notna()]  # balance-sheet-only years were kept just for the averages
 
 
 # ---------- evidence ----------
@@ -174,30 +205,44 @@ def evidence(r: pd.DataFrame, currency: str = "", prefix: str = "") -> list[dict
     """Every ratio-year becomes one citable item, id = CODE_FYyyyy (e.g. GM_FY2026)."""
     out = []
     years = list(r.index)
+    keys = period_keys(years)
+    ok = _consecutive(years)
     for code, (name, unit, _why) in METRICS.items():
         for k, fy in enumerate(years):
             v = r.at[fy, code]
             if pd.isna(v):
                 continue
-            prev = r.at[years[k - 1], code] if k > 0 else np.nan
+            prev = r.at[years[k - 1], code] if k > 0 and ok.iloc[k] else np.nan
             text = f"{name} {fy}: {_fmt(v, unit, currency)}"
             if not pd.isna(prev):
                 text += f" (전년 {_fmt(prev, unit, currency)})"
-            out.append({"id": f"{prefix}{code}_{fy.split('(')[0]}", "metric": code, "period": fy,
+            out.append({"id": f"{prefix}{code}_{keys[fy]}", "metric": code, "period": fy,
                         "value": float(v), "text": text})
+    ids = [e["id"] for e in out]
+    if len(ids) != len(set(ids)):
+        raise ValueError(f"Duplicate evidence ids: {sorted({i for i in ids if ids.count(i) > 1})}")
     return out
 
 
 # ---------- questions the numbers raise ----------
-def questions(r: pd.DataFrame) -> list[dict]:
-    """Rule-based red/yellow flags. Each is a question to answer from the filings, not a conclusion."""
+def questions(r: pd.DataFrame, prefix: str = "") -> list[dict]:
+    """Rule-based red/yellow flags. Each is a question to answer from the filings, not a conclusion.
+
+    Pass the same `prefix` you gave evidence() so the question ids match the evidence ids.
+    """
     q = []
     years = list(r.index)
+    if not years:
+        return q
+    keys = period_keys(years)
+    ok = _consecutive(years)
 
     def add(code, fy, level, text):
-        q.append({"level": level, "evidence_id": f"{code}_{fy.split('(')[0]}", "question": text})
+        q.append({"level": level, "evidence_id": f"{prefix}{code}_{keys[fy]}", "question": text})
 
     for k in range(1, len(years)):
+        if not ok.iloc[k]:  # a missing year in between: year-on-year comparison would mislead
+            continue
         fy, pf = years[k], years[k - 1]
         cur, prev = r.loc[fy], r.loc[pf]
         if abs(cur.GM - prev.GM) >= 3:
@@ -236,11 +281,11 @@ def peer_table(tickers: list[str], refresh: bool = False) -> pd.DataFrame:
     for t in tickers:
         try:
             d = fetch(t, refresh=refresh)
+            r = ratios(line_items(d))
+            last = r.iloc[-1]
         except Exception as e:  # one bad ticker should not stop the comparison
             print(f"skip {t}: {e}")
             continue
-        r = ratios(line_items(d))
-        last = r.iloc[-1]
         name = d["info"].get("shortName") or t
         rows[f"{name} ({t})"] = {"최근 회계연도": r.index[-1], **{METRICS[c][0]: last[c] for c in METRICS if c != "REV"}}
     return pd.DataFrame(rows).T

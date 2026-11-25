@@ -19,14 +19,19 @@ def ca_bundle() -> str:
     """Path to a PEM file with certifi roots plus (on Windows) the OS-trusted roots."""
     if sys.platform != "win32":
         return certifi.where()
+    server_auth = "1.3.6.1.5.5.7.3.1"
     pem = [open(certifi.where(), encoding="utf-8").read()]
-    for store in ("ROOT", "CA"):
-        for cert, encoding, _trust in ssl.enum_certificates(store):
-            if encoding == "x509_asn":
-                pem.append(ssl.DER_cert_to_PEM_cert(cert))
+    # Only the trusted-root store, and only certificates Windows trusts for server authentication
+    # (trust is True = all purposes, or a set of allowed purpose OIDs).
+    for cert, encoding, trust in ssl.enum_certificates("ROOT"):
+        if encoding == "x509_asn" and (trust is True or server_auth in trust):
+            pem.append(ssl.DER_cert_to_PEM_cert(cert))
     path = os.path.join(tempfile.gettempdir(), "asia_research_ca_bundle.pem")
-    with open(path, "w", encoding="utf-8") as f:
+    # Write to a unique temp file, then swap it in, so a second process never reads a half-written file.
+    fd, tmp = tempfile.mkstemp(suffix=".pem", dir=tempfile.gettempdir())
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write("\n".join(pem))
+    os.replace(tmp, path)
     return path
 
 
