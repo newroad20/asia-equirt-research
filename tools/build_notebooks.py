@@ -6,7 +6,7 @@ OUT.mkdir(exist_ok=True)
 md = nbf.v4.new_markdown_cell
 code = nbf.v4.new_code_cell
 
-SETUP = '''import sys, json
+SETUP = '''import sys, json, re
 from pathlib import Path
 ROOT = Path.cwd().parent if Path.cwd().name == "notebooks" else Path.cwd()
 sys.path.insert(0, str(ROOT))
@@ -150,6 +150,7 @@ md('''# 02. 투자 논거 vs 반대 논거 토론
 - 근거는 01 노트북이 만든 재무 지표(`GM_FY2026` 등)와, 있으면 `run.py`로 공시 원문에서 뽑은 팩트(`F1`, `F2` …)뿐이다.
 - AI의 반박은 **근거 id를 반드시 인용**해야 한다. 인용이 없거나 존재하지 않는 id를 쓰면 코드가 그 반박을 **걸러내고 따로 표시**한다.
 - 내가 `[id]`로 인용한 근거도 똑같이 검사한다.
+- 01에서 나온 경고 질문이 BEAR와 심판에게 전달된다. 🔴 경고 중 토론에서 아무도 근거로 다루지 않은 것은 심판의 '풀리지 않은 질문'에 자동으로 추가된다.
 - 밸류에이션·주가는 근거에 없다. AI가 지어내지 못하게 막아 두었다.
 - **최종 판단은 사람이 한다.** 이 노트북의 결과물은 '토론 전 관점 → 토론 → 토론 후 관점'의 기록이다.
 
@@ -169,12 +170,13 @@ saved = json.loads(ev_file.read_text(encoding="utf-8"))
 evidence = saved["evidence"] + load_filing_facts(TICKER.split(".")[0])
 
 pb = playbook.load(saved.get("playbook", "generic"))
-d = Debate(COMPANY, TICKER, evidence, language="Korean", bear_notes=playbook.bear_notes_text(pb))
+d = Debate(COMPANY, TICKER, evidence, language="Korean", bear_notes=playbook.bear_notes_text(pb),
+           questions=saved["questions"])
 print("모드:", "연습 모드 (API 호출 없음)" if d.dry_run else "Claude API", "| 근거 수:", len(d.evidence))'''),
 md('''## 근거 목록
 
 토론에서 인용할 수 있는 id들이다. 최근 2개년만 보여 준다 (전체는 `d.evidence`).'''),
-code('''recent = [k for k in d.evidence if k.endswith(("FY2025", "FY2026")) or k.startswith("F")]
+code('''recent = [k for k in d.evidence if k.endswith(("FY2025", "FY2026")) or re.fullmatch(r"F[0-9]+", k)]
 pd.DataFrame({"근거": [d.evidence[k] for k in recent]}, index=recent)'''),
 md('''## 01에서 찾은 질문들 (토론 재료)'''),
 code('''icon = {"red": "🔴", "yellow": "🟡"}

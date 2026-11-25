@@ -174,3 +174,76 @@ def test_evidence_limited_to_playbook_metrics():
     r = fin.ratios(fin.line_items(make_data(["2023-03-31", "2024-03-31"])))
     gen = pbmod.load("generic")
     assert {e["metric"] for e in fin.evidence(r, metrics=gen["metrics"])} <= set(gen["metrics"])
+
+
+# ---------- 2026-11-25 review ----------
+from research import market as mk  # noqa: E402
+
+
+def test_excess_return_uses_stock_dates_for_halted_stock():
+    idx = pd.bdate_range("2025-01-01", "2026-06-30")
+    stock = pd.Series(100.0, index=idx)
+    stock[idx > "2026-03-31"] = np.nan                                # halted after March
+    index = pd.Series(np.where(idx > "2026-03-31", 200.0, 100.0), index=idx)  # index doubles after the halt
+    px = pd.DataFrame({"AAA.T": stock, "^N225": index})
+    row = mk.performance(px, ["AAA.T"]).loc["AAA.T"]
+    assert row["1년 지수 대비(%p)"] == pytest.approx(0.0)
+
+
+def test_benchmarks_by_exchange():
+    assert mk.benchmark_for("1234.KQ")[0] == "^KQ11"
+    assert mk.benchmark_for("1234.TWO") is None                      # no TPEx index on Yahoo: none, not TAIEX
+    assert mk.benchmark_for("2330.TW")[0] == "^TWII"
+    assert mk.benchmark_for("D05.SI")[0] == "^STI"
+
+
+def _streak_table(values, dates):
+    r = pd.DataFrame({m: np.nan for m in fin.METRICS}, index=[fin.fy_label(pd.Timestamp(d)) for d in dates])
+    r["CFO_NI"] = values
+    return r
+
+
+def test_streak_ignores_old_years_behind_a_missing_one():
+    gen = pbmod.load("generic")
+    dates = ["2021-03-31", "2022-03-31", "2023-03-31", "2024-03-31", "2025-03-31"]
+    # last year missing (loss year): the old run of weak years must not count as "recent"
+    r = _streak_table([0.5, 0.5, 0.5, 0.5, np.nan], dates)
+    assert not [q for q in pbmod.questions(r, gen) if q["rule"] == "cash_conversion"]
+    r = _streak_table([1.0, 1.0, 0.5, 0.5, 0.5], dates)
+    hits = [q for q in pbmod.questions(r, gen) if q["rule"] == "cash_conversion"]
+    assert hits and hits[0]["evidence_id"] == "CFO_NI_FY2025"
+    gap = _streak_table([0.5, 0.5, 0.5], ["2021-03-31", "2023-03-31", "2024-03-31"])  # FY2022 missing
+    assert not [q for q in pbmod.questions(gap, gen) if q["rule"] == "cash_conversion"]
+
+
+@pytest.mark.parametrize("yaml_text, match", [
+    ("name: a\nextends: a\n", "Circular"),
+    ("name: a\nmetrics: [GM]\nrules:\n  - {type: rise, metric: GM, threshold: 1, level: red, question: q}\n", "needs an id"),
+    ("name: a\nmetrics: [GM]\nrules:\n  - {id: x, type: rise, metric: GM, level: red, question: q}\n", "threshold"),
+    ("name: a\nmetrics: [GM]\nrules:\n  - {id: x, type: rise, metric: GM, threshold: 1, level: red, question: '{oops}'}\n", "placeholder"),
+    ("name: a\nmetrics: [GM]\nrules:\n  - {id: x, type: streak_below, metric: GM, threshold: 1, years: 1, level: red, question: q}\n", "years"),
+])
+def test_playbook_load_errors(tmp_path, monkeypatch, yaml_text, match):
+    (tmp_path / "a.yaml").write_text(yaml_text, encoding="utf-8")
+    monkeypatch.setattr(pbmod, "PLAYBOOKS", tmp_path)
+    with pytest.raises(ValueError, match=match):
+        pbmod.load("a")
+
+
+def test_red_flags_reach_debate_and_unaddressed_ones_become_unresolved():
+    qs = [{"level": "red", "rule": "r1", "evidence_id": "GM_FY2026", "question": "GM 급락?"},
+          {"level": "red", "rule": "r2", "evidence_id": "FCF_M_FY2026", "question": "FCF 적자?"},
+          {"level": "yellow", "rule": "r3", "evidence_id": "OPM_FY2026", "question": "OPM?"}]
+    ev = [{"id": i, "text": i} for i in ("GM_FY2026", "FCF_M_FY2026", "OPM_FY2026")]
+    d = Debate("Test", "TEST", ev, dry_run=True, questions=qs)
+    assert "GM 급락?" in d._bear_system and "FCF 적자?" in d._judge_system
+    d.rounds.append({"bull": "마진은 회복된다 [GM_FY2026]", "bull_bad_ids": [], "bear": {}, "rejected": []})
+    d._fake = lambda system: json.dumps({"unresolved": None})
+    j = d.judge()
+    flagged = [u["question"] for u in j["unresolved"]]
+    assert len(flagged) == 1 and "FCF 적자?" in flagged[0]            # yellow and answered red are not added
+
+
+def test_duplicate_evidence_ids_raise():
+    with pytest.raises(ValueError, match="Duplicate"):
+        Debate("T", "T", [{"id": "A", "text": "1"}, {"id": "A", "text": "2"}], dry_run=True)

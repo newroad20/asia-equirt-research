@@ -15,10 +15,14 @@ ROOT = Path(__file__).resolve().parent.parent
 
 BENCHMARKS = {  # ticker suffix -> (index ticker, name)
     ".T": ("^N225", "Nikkei 225"),
-    ".KS": ("^KS11", "KOSPI"), ".KQ": ("^KS11", "KOSPI"),
-    ".TW": ("^TWII", "TAIEX"), ".TWO": ("^TWII", "TAIEX"),
+    ".KS": ("^KS11", "KOSPI"), ".KQ": ("^KQ11", "KOSDAQ"),
+    ".TW": ("^TWII", "TAIEX"),
+    # .TWO (Taipei Exchange / TPEx): Yahoo has no TPEx index series, so no benchmark rather than a wrong one
     ".HK": ("^HSI", "Hang Seng"),
     ".SS": ("000300.SS", "CSI 300"), ".SZ": ("000300.SS", "CSI 300"),
+    ".SI": ("^STI", "Straits Times"), ".KL": ("^KLSE", "FTSE Bursa Malaysia KLCI"),
+    ".BK": ("^SET.BK", "SET"), ".JK": ("^JKSE", "Jakarta Composite"),
+    ".NS": ("^NSEI", "Nifty 50"), ".BO": ("^NSEI", "Nifty 50"),
 }
 VALUATION_FIELDS = {
     "currency": "통화", "marketCap": "시가총액", "trailingPE": "PER(지난 12개월)", "forwardPE": "PER(예상)",
@@ -86,7 +90,8 @@ def performance(px: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
         bm = benchmark_for(t)
         if bm and bm[0] in px:
             row["지수"] = bm[1]
-            row["1년 지수 대비(%p)"] = row["1년"] - _ret(px[bm[0]], windows["1년"])
+            # index measured over the same dates as the stock (a halted stock stops at its last trade)
+            row["1년 지수 대비(%p)"] = row["1년"] - _ret(px[bm[0]][:end], windows["1년"])
         last_year = s[s.index > windows["1년"]]
         row["52주 고점 대비(%)"] = (s.iloc[-1] / last_year.max() - 1) * 100
         row["연율 변동성(%)"] = last_year.pct_change().std() * np.sqrt(252) * 100

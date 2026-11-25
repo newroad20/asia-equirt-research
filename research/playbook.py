@@ -23,14 +23,20 @@ def available() -> list[str]:
     return sorted(p.stem for p in PLAYBOOKS.glob("*.yaml"))
 
 
-def load(name: str) -> dict:
+def load(name: str, _chain: tuple = ()) -> dict:
+    if name in _chain:
+        raise ValueError(f"Circular playbook extends: {' -> '.join(_chain + (name,))}")
     path = PLAYBOOKS / f"{name}.yaml"
     if not path.exists():
         raise FileNotFoundError(f"No playbook '{name}'. Available: {available()}")
     pb = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    pb["name"] = pb.get("name") or name
+    for r in pb.get("rules") or []:
+        if not isinstance(r, dict) or not r.get("id"):
+            raise ValueError(f"{path.name}: every rule needs an id, got {r}")
     parent_name = pb.get("extends")
     if parent_name:
-        parent = load(parent_name)
+        parent = load(parent_name, _chain + (name,))
         child_rules = {r["id"]: r for r in pb.get("rules") or []}
         rules = [child_rules.pop(r["id"], r) for r in parent["rules"]] + list(child_rules.values())
         pb = {**parent, **pb,
@@ -59,6 +65,14 @@ def _validate(pb: dict, path: Path):
             raise ValueError(f"{path.name}: rule {r['id']} uses metric {r.get('metric')} that is not in this playbook's metrics")
         if r.get("level") not in ("red", "yellow"):
             raise ValueError(f"{path.name}: rule {r['id']} level must be red or yellow")
+        if not isinstance(r.get("threshold"), (int, float)):
+            raise ValueError(f"{path.name}: rule {r['id']} needs a numeric threshold")
+        if r["type"] == "streak_below" and not (isinstance(r.get("years", 3), int) and r.get("years", 3) >= 2):
+            raise ValueError(f"{path.name}: rule {r['id']} years must be an integer >= 2")
+        try:  # catch unknown {placeholders} at load time, not when the rule first fires
+            str(r.get("question", "")).format(fy="FY", prev="0", cur="0", delta="0", threshold=r["threshold"])
+        except (KeyError, IndexError, ValueError) as e:
+            raise ValueError(f"{path.name}: rule {r['id']} question has a bad placeholder: {e}") from None
 
 
 def bear_notes_text(pb: dict) -> str:
@@ -97,9 +111,12 @@ def questions(r: pd.DataFrame, pb: dict, prefix: str = "") -> list[dict]:
             if not pd.isna(cur) and (cur >= t if kind == "above" else cur < t):
                 add(len(years) - 1, n, rule, cur)
         elif kind == "streak_below":
-            recent = s.dropna().tail(rule.get("years", 3))
-            if len(recent) >= 2 and (recent < t).all():
-                add(years.index(recent.index[-1]), n, rule, recent.iloc[-1])
+            # the most recent n years, back to back: a missing value (e.g. a loss year) or a gap breaks the streak
+            n_years = rule.get("years", 3)
+            recent = s.tail(n_years)
+            if (len(recent) == n_years and recent.notna().all() and ok.tail(n_years - 1).all()
+                    and (recent < t).all()):
+                add(len(years) - 1, n, rule, recent.iloc[-1])
         else:
             for k in range(1, len(years)):
                 if not ok.iloc[k]:

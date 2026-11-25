@@ -5,6 +5,9 @@ COMPANY: {company}
 SECTOR NOTES (what a skeptic should probe in this kind of business; use them to choose questions, not as facts):
 {bear_notes}
 
+RED FLAGS FROM THE NUMBERS (questions the analyst's own screen raised; each points at an evidence id; press on any the pitch ignores):
+{questions}
+
 EVIDENCE (the only facts you may rely on; each has an id):
 {evidence}
 

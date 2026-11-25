@@ -4,6 +4,7 @@ Code-side checks (the model's word is not trusted):
   - every evidence id the BEAR cites must exist, otherwise that rebuttal is removed and shown as rejected
   - evidence ids YOU cite in [brackets] are checked too, so you see when you cite something that isn't there
   - the judge's evidence ids are checked the same way
+  - red-flag questions from the playbook that nobody addressed are added to the judge's "unresolved" list
 """
 import json
 import re
@@ -27,19 +28,27 @@ def load_filing_facts(ticker: str) -> list[dict]:
 
 class Debate:
     def __init__(self, company: str, ticker: str, evidence: list[dict], language: str = "Korean",
-                 dry_run: bool | None = None, model: str | None = None, bear_notes: str = "- (none)"):
-        """bear_notes: sector-specific things a skeptic should probe (playbook.bear_notes_text(pb))."""
+                 dry_run: bool | None = None, model: str | None = None, bear_notes: str = "- (none)",
+                 questions: list[dict] | None = None):
+        """bear_notes: sector-specific things a skeptic should probe (playbook.bear_notes_text(pb)).
+        questions: rule hits from 01 (playbook.questions); BEAR uses them, the judge checks they were answered."""
         self.company, self.ticker, self.language = company, ticker, language
+        dupes = sorted({e["id"] for e in evidence if sum(x["id"] == e["id"] for x in evidence) > 1})
+        if dupes:
+            raise ValueError(f"Duplicate evidence ids (one would silently overwrite the other): {dupes}")
         self.evidence = {e["id"]: e["text"] for e in evidence}
+        self.questions = list(questions or [])
         self.dry_run = (not has_credentials()) if dry_run is None else dry_run
         self.model = model
         self.rounds: list[dict] = []     # {"bull": str, "bull_bad_ids": [...], "bear": {...}, "rejected": [...]}
         self._messages: list[dict] = []  # raw conversation sent to the model
         self.judgement: dict | None = None
         ev_text = "\n".join(f"[{k}] {v}" for k, v in self.evidence.items())
+        q_text = "\n".join(f"- ({q['level']}) [{q['evidence_id']}] {q['question']}" for q in self.questions) or "- (none)"
         self._bear_system = load_prompt("04_bear_pm.md").format(company=company, evidence=ev_text, language=language,
-                                                                bear_notes=bear_notes)
-        self._judge_system = load_prompt("05_judge.md").format(company=company, evidence=ev_text, language=language)
+                                                                bear_notes=bear_notes, questions=q_text)
+        self._judge_system = load_prompt("05_judge.md").format(company=company, evidence=ev_text, language=language,
+                                                               questions=q_text)
 
     # ----- model calls (real or offline fake) -----
     def _call(self, system: str, messages: list[dict]) -> str:
@@ -106,8 +115,21 @@ class Debate:
                 elif unknown:
                     c["verdict"] = "unsupported"
                     c["comment"] = f"[자동 검증] 존재하지 않는 근거 id: {unknown}. " + (c.get("comment") or "")
+        j["unresolved"] = (j.get("unresolved") or []) + [
+            {"question": f"[자동 검증] 토론에서 다루지 않은 경고: {q['question']}", "source_to_check": "유가증권보고서·실적발표"}
+            for q in self.unaddressed_red_flags()]
         self.judgement = j
         return j
+
+    def cited_ids(self) -> set[str]:
+        """Evidence ids actually used in the debate: your pitches plus the BEAR rebuttals that survived the check."""
+        ids = {i for r in self.rounds for i in ID_IN_TEXT.findall(r["bull"])}
+        ids |= {i for r in self.rounds for x in r["bear"].get("rebuttals", []) for i in x.get("evidence_ids") or []}
+        return ids & set(self.evidence)
+
+    def unaddressed_red_flags(self) -> list[dict]:
+        used = self.cited_ids()
+        return [q for q in self.questions if q["level"] == "red" and q["evidence_id"] not in used]
 
     # ----- display / save -----
     def round_md(self, r: dict, n: int) -> str:
