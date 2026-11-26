@@ -297,3 +297,195 @@ def test_claude_code_backend(monkeypatch):
     reply = {"result": "usage limit reached", "is_error": True}
     with pytest.raises(RuntimeError, match="usage limit"):
         llm.call_llm("sys", "hello")
+
+
+# ---------- investment journal ----------
+def _trades(rows):
+    from research import journal as jr
+    t = pd.DataFrame(rows, columns=["date", "ticker", "side", "qty", "price", "fee"])
+    t["date"] = pd.to_datetime(t["date"])
+    t["currency"] = t["ticker"].map(jr.currency_for)
+    return t
+
+
+def test_journal_rounds_returns_and_weights():
+    from research import journal as jr
+    t = _trades([
+        ["2025-01-02", "AAA.KS", "buy", 10, 100.0, 0.0],
+        ["2025-02-03", "AAA.KS", "buy", 10, 200.0, 0.0],    # average cost 150
+        ["2025-03-03", "AAA.KS", "sell", 10, 300.0, 0.0],   # half out, 10 left at 150
+        ["2025-01-02", "BBB.T", "buy", 1, 1000.0, 0.0],
+        ["2025-04-01", "BBB.T", "sell", 1, 1100.0, 0.0],    # round closed: +10%
+        ["2025-05-01", "BBB.T", "buy", 2, 1000.0, 0.0],     # new round
+    ])
+    t = t.sort_values("date", kind="stable")
+    rs = jr.rounds(t)
+    assert sorted((r["ticker"], r["closed"] is None) for r in rs) == [("AAA.KS", True), ("BBB.T", False), ("BBB.T", True)]
+    a = next(r for r in rs if r["ticker"] == "AAA.KS")
+    assert a["qty"] == 10 and a["cost_open"] == pytest.approx(1500) and a["buy_cost"] == 3000 and a["proceeds"] == 3000
+
+    idx = pd.to_datetime(["2025-01-02", "2025-06-30"])
+    px = pd.DataFrame({"AAA.KS": [100.0, 250.0], "BBB.T": [1000.0, 1500.0], "^KS11": [100.0, 110.0],
+                       "^N225": [100.0, 100.0], "JPYKRW=X": [10.0, 10.0]}, index=idx)
+    ev = jr.evaluate(rs, px, base="KRW").set_index(["ticker", "status"])
+    # AAA: (3000 proceeds + 10 * 250) / 3000 - 1 = +83.3%, index +10% -> +73.3%p
+    assert ev.loc[("AAA.KS", "holding"), "return_pct"] == pytest.approx((5500 / 3000 - 1) * 100)
+    # index replay: 1000 + 2000 buy 30 units at 100, half sold at 100 (1500), 15 left at 110 -> +5%
+    assert ev.loc[("AAA.KS", "holding"), "index_pct"] == pytest.approx(5.0)
+    assert ev.loc[("AAA.KS", "holding"), "excess_pp"] == pytest.approx((5500 / 3000 - 1) * 100 - 5)
+    closed = ev.loc[("BBB.T", "closed")]
+    assert closed["return_pct"] == pytest.approx(10.0)
+    # weights in KRW: AAA 2500, BBB 2 * 1500 JPY * 10 = 30000
+    assert ev.loc[("AAA.KS", "holding"), "weight_pct"] == pytest.approx(2500 / 32500 * 100)
+    assert ev.loc[("BBB.T", "holding"), "weight_pct"] == pytest.approx(30000 / 32500 * 100)
+    assert pd.isna(closed["weight_pct"])
+
+
+def test_journal_rejects_overselling():
+    from research import journal as jr
+    with pytest.raises(ValueError, match="more shares than held"):
+        jr.rounds(_trades([["2025-01-02", "AAA.KS", "buy", 1, 100.0, 0.0], ["2025-01-03", "AAA.KS", "sell", 2, 100.0, 0.0]]))
+    with pytest.raises(ValueError, match="no shares"):
+        jr.rounds(_trades([["2025-01-03", "AAA.KS", "sell", 1, 100.0, 0.0]]))
+
+
+def test_journal_kill_criteria_and_public_report_hides_amounts(tmp_path):
+    from research import journal as jr
+    d = make_data(["2023-12-31", "2024-12-31"], revenue=[100.0, 100.0])
+    r = fin.ratios(fin.line_items(d))                      # GM 30%, PPE_TURN 100/180
+    (tmp_path / "AAA.KS.yaml").write_text(
+        "ticker: AAA.KS\ncompany: Alpha\nstatus: holding\nthesis: 내 논거\n"
+        "kill_criteria:\n  - {metric: GM, below: 35}\n  - {metric: PPE_TURN, below: 0.1}\n  - {text: 대주주 변경}\n"
+        "reviews:\n  - {date: 2025-03-01, note: 복기}\n", encoding="utf-8")
+    theses = jr.load_theses(tmp_path)
+    ks = jr.check_kill(theses["AAA.KS"], r)
+    assert [k["status"] for k in ks] == ["hit", "ok", "manual"]
+    assert ks[0]["evidence"] == "GM_FY2024"
+    assert [k["status"] for k in jr.check_kill(theses["AAA.KS"], None)] == ["n/a", "n/a", "manual"]
+
+    t = _trades([["2025-01-02", "AAA.KS", "buy", 37, 12345.0, 77.0], ["2025-01-02", "ZZZ.KS", "buy", 3, 54321.0, 0.0]])
+    px = pd.DataFrame({"AAA.KS": [12345.0, 13579.0], "ZZZ.KS": [54321.0, 50000.0], "^KS11": [100.0, 100.0]},
+                      index=pd.to_datetime(["2025-01-02", "2025-06-30"]))
+    ev = jr.evaluate(jr.rounds(t), px, base="KRW")
+    md = jr.public_markdown(ev, theses, {"AAA.KS": ks})
+    for secret in ("37", "12345", "12,345", "13579", "13,579", "54321", "54,321", "50,000", "456,765"):
+        assert secret not in md
+    assert "🔴" in md and "Alpha" in md and "ZZZ.KS" in md and "논거 파일이 없다" in md
+    priv = jr.private_markdown(ev)
+    assert "13,579.00" in priv and "37.00" in priv          # avg cost includes the fee: 12,347.08
+
+
+def test_journal_thesis_validation(tmp_path):
+    from research import journal as jr
+    (tmp_path / "X.yaml").write_text("ticker: X\ncompany: X\nstatus: holding\nthesis: t\nkill_criteria:\n  - {metric: NOPE, below: 1}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="kill criterion"):
+        jr.load_theses(tmp_path)
+    (tmp_path / "X.yaml").write_text("ticker: X\ncompany: X\nstatus: bought\nthesis: t\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="status"):
+        jr.load_theses(tmp_path)
+
+
+def test_journal_new_thesis_from_debate(tmp_path):
+    from research import journal as jr
+    deb = tmp_path / "AAA.KS_20260101_1200.json"
+    deb.write_text(json.dumps({"view_after": "토론 후 관점", "judgement": {"unresolved": [{"question": "가동률은?"}]}},
+                              ensure_ascii=False), encoding="utf-8")
+    p = jr.new_thesis("AAA.KS", "Alpha", debate_json=deb, folder=tmp_path / "theses")
+    th = jr.load_theses(tmp_path / "theses")["AAA.KS"]
+    assert th["thesis"] == "토론 후 관점" and th["open_questions"] == ["가동률은?"] and th["debate"] == deb.with_suffix(".md").name
+    with pytest.raises(FileExistsError):
+        jr.new_thesis("AAA.KS", "Alpha", folder=tmp_path / "theses")
+    assert p.exists()
+
+
+def test_journal_example_files_load():
+    from research import journal as jr
+    trades = jr.load_trades(jr.EXAMPLE_TRADES)
+    theses = jr.load_theses(jr.EXAMPLES / "theses")
+    assert {r["ticker"] for r in jr.rounds(trades)} <= set(theses)
+
+
+def test_journal_errors_never_show_amounts(tmp_path):
+    from research import journal as jr
+    f = tmp_path / "trades.csv"
+    f.write_text("date,ticker,side,qty,price,fee\n2025-01-02,A.KS,buy,0,98765,0\n2025-01-03,A.KS,buy,4321,-5,0\n", encoding="utf-8")
+    with pytest.raises(ValueError) as e:
+        jr.load_trades(f)
+    msg = str(e.value)
+    assert "row 2" in msg and "row 3" in msg and "98765" not in msg and "4321" not in msg
+    f.write_text("date,ticker,side,qty,price\n2025-01-02,A.KS,buy,4321,98765\n2025-01-03,A.KS,sell,5555,98765\n", encoding="utf-8")
+    with pytest.raises(ValueError) as e:
+        jr.rounds(jr.load_trades(f))
+    assert "row 3" in str(e.value) and "5555" not in str(e.value) and "4321" not in str(e.value)
+
+
+def test_journal_input_formats_split_and_empty(tmp_path):
+    from research import journal as jr
+    f = tmp_path / "trades.csv"
+    f.write_text("date,ticker,side,qty,price,fee\n", encoding="utf-8")
+    assert jr.rounds(jr.load_trades(f)) == []
+    ev = jr.evaluate([], pd.DataFrame())
+    assert ev.empty and "(없음)" in jr.public_markdown(ev, {}, {})
+    f.write_text('date,ticker,side,qty,price\n2025-01-02,8035.t,buy,10,"1,000"\n2025-02-03,8035.t,split,3,\n', encoding="utf-8")
+    t = jr.load_trades(f)
+    assert t["ticker"].tolist() == ["8035.T"] * 2 and t["currency"].tolist() == ["JPY"] * 2
+    rs = jr.rounds(t)
+    assert rs[0]["qty"] == 30 and rs[0]["buy_cost"] == 10000
+    px = pd.DataFrame({"8035.T": [1000.0, 370.0], "^N225": [100.0, 100.0], "JPYKRW=X": [9.0, 9.0]},
+                      index=pd.to_datetime(["2025-01-02", "2025-06-30"]))
+    yahoo = {"8035.T": pd.Series([3.0], index=pd.to_datetime(["2025-02-03"]))}
+    ev = jr.evaluate(rs, px, splits=yahoo)
+    assert ev["return_pct"].iloc[0] == pytest.approx(11.0) and not ev["split_suspect"].iloc[0]
+    # the same holding without the split row: flagged, not silently shown as -63%
+    ev = jr.evaluate(jr.rounds(t.iloc[:1]), px, splits=yahoo)
+    assert ev["split_suspect"].iloc[0]
+    assert "액면분할" in jr.public_markdown(ev, {}, {})
+    # no split history (Yahoo unreachable): a price far from the average cost is still flagged
+    px.loc[px.index[-1], "8035.T"] = 100.0
+    assert jr.evaluate(jr.rounds(t.iloc[:1]), px)["split_suspect"].iloc[0]
+
+
+def test_journal_missing_fx_or_price_does_not_respread_weights():
+    from research import journal as jr
+    t = _trades([["2025-01-02", "A.KS", "buy", 1, 100.0, 0.0], ["2025-01-02", "B.T", "buy", 1, 100.0, 0.0],
+                 ["2025-01-02", "C.KS", "buy", 1, 100.0, 0.0]])
+    px = pd.DataFrame({"A.KS": [100.0, 100.0], "B.T": [100.0, 100.0], "^KS11": [1.0, 1.0], "^N225": [1.0, 1.0]},
+                      index=pd.to_datetime(["2025-01-02", "2025-06-30"]))      # no JPYKRW=X, no C.KS column
+    ev = jr.evaluate(jr.rounds(t), px)
+    assert ev["weight_pct"].isna().all()
+    md = jr.public_markdown(ev, {}, {})
+    assert "`B.T`: 현재가나 환율이 없어" in md and "`C.KS`: 현재가나 환율이 없어" in md
+
+
+def test_journal_index_needs_data_from_the_buy_date():
+    from research import journal as jr
+    idx = pd.Series([100.0, 120.0], index=pd.to_datetime(["2025-03-01", "2025-06-30"]))
+    end = pd.Timestamp("2025-06-30")
+    assert np.isnan(jr.index_return([(pd.Timestamp("2025-01-02"), "buy", 100.0)], idx, end, 100.0))
+    assert jr.index_return([(pd.Timestamp("2025-03-01"), "buy", 100.0)], idx, end, 100.0) == pytest.approx(20.0)
+
+
+def test_journal_thesis_yaml_edge_cases(tmp_path):
+    from research import journal as jr
+    ok = "company: X\nstatus: watching\nthesis: t\n"
+    (tmp_path / "7203.T.yaml").write_text("ticker: 7203.t\n" + ok + "kill_criteria:\nreviews:\nopen_questions:\n", encoding="utf-8")
+    th = jr.load_theses(tmp_path)["7203.T"]
+    assert th["kill_criteria"] == [] and th["reviews"] == []
+    for bad, match in (("ticker: 7203.T\n" + ok + "kill_criteria:\n  - {metric: GM, below: yes}\n", "kill criterion"),
+                       ("ticker: 7203.T\n" + ok + "kill_criteria:\n  - {metric: GM, below: .nan}\n", "kill criterion"),
+                       ("ticker: 7203.T\n" + ok + "kill_criteria:\n  - 대주주 변경\n", "must be"),
+                       ("ticker: 7203.T\n" + ok + "open_questions: 가동률\n", "must be a list"),
+                       ("ticker: 9999.T\n" + ok, "does not match")):
+        (tmp_path / "7203.T.yaml").write_text(bad, encoding="utf-8")
+        with pytest.raises(ValueError, match=match):
+            jr.load_theses(tmp_path)
+
+
+def test_journal_own_theses_win_before_the_first_trade(tmp_path, monkeypatch):
+    from research import journal as jr
+    monkeypatch.setattr(jr, "THESES", tmp_path / "theses")
+    monkeypatch.setattr(jr, "TRADES", tmp_path / "trades.csv")
+    assert jr.sources()[2] is True                       # nothing of my own yet: examples
+    jr.new_thesis("AAA.KS", "Alpha", folder=tmp_path / "theses")
+    trades, theses, is_example = jr.sources()
+    assert not is_example and theses == tmp_path / "theses" and not trades.exists()

@@ -324,7 +324,72 @@ md("""## 5. 읽고 나서 적을 것
 > 여기에 직접 작성하세요."""),
 ]
 
-for nb, name in ((nb1, "01_fundamentals.ipynb"), (nb2, "02_debate.ipynb"), (nb3, "03_market.ipynb")):
+# ---------------- 04 journal ----------------
+nb4 = nbf.v4.new_notebook()
+nb4.cells = [
+md("""# 04. 투자 기록: 왜 샀고, 어떻게 됐고, 언제 틀렸다고 볼 것인가
+
+01~03이 **판단을 만드는** 단계라면, 여기는 **판단을 기록하고 나중에 채점하는** 단계다.
+
+| 파일 | 내용 | GitHub |
+|---|---|---|
+| `journal/theses/<티커>.yaml` | 내 문장으로 쓴 논거, 근거가 된 토론, **틀리면 팔 조건**, 답하지 못한 질문, 복기 | 공개 |
+| `journal/trades.csv` | 날짜, 티커, buy/sell, 수량, 단가, 수수료 | **로컬에만** (.gitignore) |
+| `docs/portfolio.md` | 비중·수익률(%)·지수 대비 성과·팔 조건 상태·논거 | 공개 (이 노트북이 생성) |
+| `outputs/portfolio_private.md` | 수량·평균단가·금액까지 전부 | 로컬에만 |
+
+- **틀리면 팔 조건**은 01 노트북의 지표 코드(`PPE_TURN`, `INV_DAYS` …)로 쓰면 최신 재무로 자동 확인한다. 숫자로 못 재는 조건은 `text:`로 쓰고 직접 확인한다.
+- 수익률은 **회차** 단위다. 전량 매도하면 회차가 끝나고, 다시 사면 새 회차가 시작된다. 회차 수익률 = (매도 대금 + 현재 평가액) ÷ 매수 원금 합계 − 1, 현지 통화, 수수료 포함. 한 회차 안에서 사고팔기를 반복하면 매수 원금이 계속 쌓여 수익률이 실제보다 낮게 나온다.
+- **같은 기간 지수**는 같은 날 같은 돈으로 자국 지수를 샀다고 치고 계산한다 (추가 매수도 그날 지수를 추가로 산 것으로, 매도는 같은 비율만큼 판 것으로). 매수일의 지수 데이터가 없으면 비워 둔다.
+- 액면분할은 매매 기록에 `split` 줄로 남긴다. Yahoo 분할 이력과 비교해서 빠진 분할은 ⚠️로 알려 준다.
+- `journal/trades.csv`가 없으면 `journal/examples/`의 **예시 데이터**로 돌아간다.
+- 이 노트북은 화면에 **공개용 정보만** 보여 준다. 노트북 출력이 git에 올라가도 금액은 드러나지 않는다."""),
+code(SETUP + """
+from research import journal
+
+BASE = "KRW"        # 비중 계산용 기준 통화
+REFRESH = False     # True: 가격·재무를 오늘 새로 받기
+o = journal.build(base=BASE, refresh=REFRESH)
+print("예시 데이터 사용 중" if o["is_example"] else "실제 매매 기록 사용 중", "| 논거", len(o["theses"]), "개 | 회차", len(o["eval"]), "개")
+print("공개 리포트:", o["public_path"].relative_to(ROOT))
+print("비공개 리포트:", o["private_path"].relative_to(ROOT), "(git에 올라가지 않음, 금액 포함)")"""),
+md("""## 1. 공개 리포트
+
+GitHub에 올라가는 내용 그대로다. ⚠️ **기록 점검**이 보이면 고칠 것: 논거 없이 산 종목, 상태가 매매 기록과 어긋나는 논거 파일."""),
+code("""display(Markdown(o["public_md"]))"""),
+md("""## 2. 틀리면 팔 조건만 모아 보기
+
+🔴가 하나라도 있으면 그 종목의 논거를 다시 쓰거나, 팔거나, **왜 조건을 바꾸는지**를 복기에 남긴다. 조건을 조용히 바꾸는 것이 가장 나쁜 습관이다."""),
+code("""rows = [{"종목": t, "조건": k["criterion"], "상태": journal.ICON[k["status"]], "근거 id": k.get("evidence") or "-",
+         "최신값": k.get("text") or "-"} for t, ks in o["kills"].items() for k in ks]
+pd.DataFrame(rows)"""),
+md("""## 3. 새 논거 파일 만들기
+
+02 토론을 마쳤으면 저장된 토론(`outputs/debates/*.json`)에서 바로 시작할 수 있다. **토론 후 내 관점**이 논거 초안이 되고, 심판이 남긴 **풀리지 않은 질문**이 답하지 못한 질문 목록이 된다. 만든 뒤에는 YAML을 직접 열어 팔 조건을 채운다.
+
+```python
+debates = sorted((ROOT / "outputs" / "debates").glob("3778.T_*.json"))
+journal.new_thesis("3778.T", "SAKURA internet", playbook="neocloud", debate_json=debates[-1])
+```
+
+## 4. 매매 기록하는 법
+
+`journal/trades.csv`를 만들고 한 줄에 한 건씩 적는다 (형식은 [journal/examples/trades.csv](../journal/examples/trades.csv)와 같음).
+
+```
+date,ticker,side,qty,price,fee
+2026-05-20,3778.T,buy,100,3000,500
+2026-09-30,3778.T,split,2,
+```
+
+- `split`: 액면분할. qty에 1주당 새 주식 수(2:1이면 2), price는 비움
+- 같은 날짜의 줄은 적힌 순서대로 처리한다
+- 형식 오류는 **몇 번째 줄인지만** 알려 준다 (수량·단가는 오류 메시지에도 안 나옴: 노트북 출력이 git에 올라가므로)
+
+복기는 논거 파일의 `reviews:`에 날짜와 함께 남긴다. 사고팔 때, 실적 발표 후, 팔 조건이 🔴가 됐을 때."""),
+]
+
+for nb, name in ((nb1, "01_fundamentals.ipynb"), (nb2, "02_debate.ipynb"), (nb3, "03_market.ipynb"), (nb4, "04_journal.ipynb")):
     nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3", "language": "python"}
     nbf.write(nb, OUT / name)
 print("ok")

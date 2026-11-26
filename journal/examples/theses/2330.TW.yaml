@@ -1,0 +1,13 @@
+ticker: 2330.TW
+company: TSMC
+playbook: semiconductor
+status: closed
+opened: 2025-03-10
+thesis: |
+  (예시) 첨단 공정 가격 인상이 해외 공장 원가 상승을 상쇄한다.
+kill_criteria:
+  - metric: GM
+    below: 50
+reviews:
+  - date: 2025-09-15
+    note: (예시) 밸류에이션이 사이클 평균을 크게 넘어 전량 매도. 논거가 틀려서가 아니라 가격 때문.

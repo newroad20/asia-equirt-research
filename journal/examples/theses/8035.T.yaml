@@ -1,0 +1,12 @@
+ticker: 8035.T
+company: Tokyo Electron
+playbook: semiconductor
+status: watching
+opened: 2026-10-01
+thesis: |
+  (예시) 첨단 패키징 장비 수요가 전공정 둔화를 메울 수 있는지 지켜보는 중.
+kill_criteria:
+  - metric: CAPEX_REV
+    above: 15
+open_questions:
+  - 중국 매출 비중과 수출 규제 영향

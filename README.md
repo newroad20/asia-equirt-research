@@ -14,6 +14,7 @@ run.py 공시 원문 → 인용 검증된 팩트(F1…) ┤
                                 ▼
 02 토론: 나(BULL) ↔ AI PM(BEAR) → 독립 심판 → 논증 지도 → 토론 전/후 내 관점 기록
 03 시황: 밸류체인별 주가 성과·밸류에이션·헤드라인 (사람이 읽는 참고 자료)
+04 투자 기록: 논거·틀리면 팔 조건(공개) + 매매 기록(로컬) → 수익률·지수 대비·조건 자동 확인
 ```
 
 | 파일 | 하는 일 | 코드로 하는 자동 검증 |
@@ -22,8 +23,9 @@ run.py 공시 원문 → 인용 검증된 팩트(F1…) ┤
 | [notebooks/01_fundamentals.ipynb](notebooks/01_fundamentals.ipynb) | 연간 재무제표 수집(yfinance) → 지표 → 차트 → 플레이북 규칙으로 질문 생성 → 비교 기업 표 | 지표마다 근거 id(`GM_FY2026` 등), 중복 시 오류 |
 | [notebooks/02_debate.ipynb](notebooks/02_debate.ipynb) | 내가 BULL, AI가 BEAR PM으로 토론 → 독립 심판이 채점 → 논증 지도(Mermaid) → 토론 전후 관점 저장. 예시: [docs/examples/3778_debate_dryrun.md](docs/examples/3778_debate_dryrun.md) | 근거 id가 없거나 틀린 반박·판정은 자동으로 걸러냄. 내가 인용한 id도 검사. 01의 🔴 경고 중 토론에서 다루지 않은 것은 '풀리지 않은 질문'에 자동 추가 |
 | [notebooks/03_market.ipynb](notebooks/03_market.ipynb) | 밸류체인 역할별 주가 성과(자국 지수 대비), 1년 주가 흐름, 밸류에이션, 최근 헤드라인 | 이상한 밸류에이션 값(PER 100배 초과·음수)에 확인 표시 |
+| [notebooks/04_journal.ipynb](notebooks/04_journal.ipynb) | 종목별 논거 파일(`journal/theses/*.yaml`)과 매매 기록(`journal/trades.csv`, 로컬 전용)으로 회차별 수익률·같은 기간 지수 대비·비중 계산 → 공개 리포트 [docs/portfolio.md](docs/portfolio.md)(%만) + 비공개 리포트(`outputs/`, 금액 포함). 예시: [docs/portfolio_example.md](docs/portfolio_example.md) | 틀리면 팔 조건을 최신 재무 지표로 자동 판정(🔴/🟢). 논거 없이 산 종목, 매매 기록과 어긋난 상태 표시. 매도 수량 초과 등 잘못된 기록은 오류. 공개 리포트에 수량·단가·금액이 안 나가는지 테스트로 확인 |
 | [run.py](run.py) | 공시·실적발표 원문(.txt) → 팩트 추출 → 논거 초안 → 회의적 검토 | 인용문이 원문에 실제로 있는지 확인. 02에서 `F1`, `F2` … 근거로 재사용 |
-| [research/](research/) | 공용 모듈: financials, playbook, market, debate, llm, net | |
+| [research/](research/) | 공용 모듈: financials, playbook, market, debate, journal, llm, net | |
 | [prompts/](prompts/) | 01~03 run.py, 04 BEAR PM, 05 심판 | |
 | [tests/](tests/) | 회귀 테스트 (`python -m pytest tests -q`), 네트워크 없이 실행 | |
 | [tools/build_notebooks.py](tools/build_notebooks.py) | 노트북 세 개를 코드로 생성 | |
@@ -32,7 +34,7 @@ run.py 공시 원문 → 인용 검증된 팩트(F1…) ┤
 ```bash
 pip install -r requirements.txt
 # API 키: 저장소 루트에 .env 파일을 만들고 ANTHROPIC_API_KEY=... 한 줄 (.env는 git에 올라가지 않음)
-jupyter lab notebooks/      # 01 → 02 순서, 03은 아무 때나
+jupyter lab notebooks/      # 01 → 02 순서, 03은 아무 때나, 04는 매매·복기 때마다
 ```
 - API 키 대신 Claude 구독을 쓰려면 `.env`에 `LLM_BACKEND=claude-code` 한 줄. 로그인된 Claude Code CLI(`claude`)로 호출하며 구독 사용량을 씁니다.
 - 둘 다 없으면 02 노트북은 **연습 모드**(가짜 응답)로 돌아갑니다. 흐름과 자동 검증만 확인할 수 있습니다.
@@ -45,6 +47,13 @@ jupyter lab notebooks/      # 01 → 02 순서, 03은 아무 때나
 3. 01 노트북에서 `PLAYBOOK = "<섹터>"`
 
 지표 계산식은 [research/financials.py](research/financials.py)의 `METRICS`/`ratios()`에 있습니다. 은행(NIM, 대손비용률)·리츠(FFO)처럼 지금 없는 지표가 필요한 섹터는 계산식부터 추가해야 합니다.
+
+### 투자 기록
+1. 02 토론 후 `journal.new_thesis(...)`로 논거 파일을 만들고(토론 후 관점과 풀리지 않은 질문이 채워짐), `kill_criteria`에 틀리면 팔 조건을 쓴다. 지표 코드로 쓰면 자동 확인, `text:`로 쓰면 직접 확인
+2. 사고팔 때마다 `journal/trades.csv`에 한 줄 (`date,ticker,side,qty,price,fee`, 액면분할은 `side=split`, 형식은 [journal/examples/trades.csv](journal/examples/trades.csv))
+3. 04 노트북 실행 → `docs/portfolio.md` 갱신, 복기는 논거 파일의 `reviews:`에 날짜와 함께
+
+`journal/` 아래 csv는 예시를 빼고 git에 올라가지 않습니다. 논거 파일은 공개되므로 금액을 쓰지 마세요.
 
 ### 공시 원문 파이프라인
 ```bash
@@ -74,6 +83,8 @@ python run.py --dry-run --company Test --ticker 0000 --dir inputs/demo          
 - [ ] 사쿠라인터넷 유가증권보고서·실적발표 원문을 `inputs/3778/`에 넣고 run.py 실행 → `F` 팩트를 토론 근거에 추가
 - [ ] 영문 원문(실적발표 transcript, 20-F 등) 한 건 포함 → 영어 원문 소화 역량 증거
 - [x] 두 번째 섹터 플레이북: 반도체 (지표는 재고일수 하나만 추가, SK하이닉스·TSMC·도쿄일렉트론 데이터로 규칙 확인)
+- [x] 투자 기록: 논거·틀리면 팔 조건·복기(공개) + 매매 기록(로컬) → 회차 수익률, 지수 대비, 조건 자동 판정 (04 노트북)
+- [ ] 실제 매매 기록(`journal/trades.csv`)과 보유 종목 논거 파일 작성 → `docs/portfolio.md` 생성
 - [ ] 리서치 에이전트 루프: 공시 검색·원문 읽기를 도구로, 찾은 팩트는 인용 검증 후에만 근거에 추가
 - [ ] 평가 세트: 하네스를 바꿀 때 인용 정확도·심판 점수가 나아졌는지 측정
 - [ ] 한국 종목용 DART API 연동 (Yahoo 대신 공시 원문 숫자)

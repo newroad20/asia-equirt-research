@@ -1,0 +1,17 @@
+ticker: 000660.KS
+company: SK hynix
+playbook: semiconductor
+status: holding
+opened: 2025-06-02
+thesis: |
+  (예시) HBM 공급이 제한된 동안은 메모리 사이클 고점이 예전보다 길다. 재고가 쌓이기 시작하면 그 가정이 깨진다.
+kill_criteria:
+  - metric: INV_DAYS
+    above: 150
+    why: 재고일수가 사이클 하락기 수준으로 늘면 공급 제한 가정이 틀린 것
+  - metric: GM
+    below: 35
+  - text: 주요 AI 가속기 고객의 HBM 공급사 다변화 발표
+reviews:
+  - date: 2026-04-01
+    note: (예시) 목표 비중을 넘어서 1/3 매도. 논거는 유지.

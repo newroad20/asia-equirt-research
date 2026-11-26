@@ -8,3 +8,8 @@ __pycache__/
 .venv/
 .ipynb_checkpoints/
 data/
+# investment journal: trades hold quantities and prices, keep them local (theses are public)
+# (any csv there, incl. copies like trades (1).csv and Excel lock files; the example stays tracked)
+journal/*.csv
+journal/~$*
+!journal/examples/*.csv

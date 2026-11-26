@@ -1,0 +1,23 @@
+# 예시 논거 파일. 실제 파일은 journal/theses/<티커>.yaml (공개됨: 금액은 쓰지 말 것)
+ticker: 3778.T
+company: SAKURA internet
+playbook: neocloud
+status: holding            # watching(관심) / holding(보유) / closed(정리)
+opened: 2026-05-20
+debate: 3778_debate_dryrun.md
+thesis: |
+  (예시) 정부 지원을 받는 일본 유일 규모의 국산 GPU 클라우드. 이익 악화는 선행 투자의 감가상각 때문이고,
+  가동률이 올라오면 유형자산 회전율과 마진이 함께 회복된다.
+kill_criteria:             # 틀렸다고 볼 조건. metric은 01 노트북의 지표 코드, 최신 재무로 자동 확인
+  - metric: PPE_TURN
+    below: 0.5
+    why: 설비가 매출로 바뀌지 않으면 '가동률 회복' 가정이 틀린 것
+  - metric: NET_DEBT_EBITDA
+    above: 4
+    why: 증설을 빚으로만 하면 사이클 한 번에 무너질 수 있음
+  - text: 정부 클라우드 사업자 지정 취소 또는 경제산업성 보조금 축소
+open_questions:
+  - GPU 설비 가동률과 고객 계약 기간 (유가증권보고서, 실적발표 Q&A)
+reviews:
+  - date: 2026-08-10
+    note: (예시) 1분기 매출은 예상대로 늘었지만 감가상각이 더 빨리 늘었다. 논거 유지, 확신도는 낮춤.
