@@ -344,6 +344,22 @@ md("""# 04. 투자 기록: 왜 샀고, 어떻게 됐고, 언제 틀렸다고 볼
 - 액면분할은 매매 기록에 `split` 줄로 남긴다. Yahoo 분할 이력과 비교해서 빠진 분할은 ⚠️로 알려 준다.
 - `journal/trades.csv`가 없으면 `journal/examples/`의 **예시 데이터**로 돌아간다.
 - 이 노트북은 화면에 **공개용 정보만** 보여 준다. 노트북 출력이 git에 올라가도 금액은 드러나지 않는다."""),
+md("""## 0. 증권사에서 체결 내역 가져오기 (선택)
+
+`.env`에 증권사 API 키가 있으면 한국투자증권·키움증권의 체결 내역을 `journal/trades.csv`로 가져온다. **조회 기능만** 호출하도록 코드에서 막혀 있다. 같은 기간을 다시 가져와도 중복되지 않고, 손으로 적은 줄은 그대로 남는다. 화면에는 건수만 나온다.
+
+```
+KIS_APP_KEY=...        KIS_APP_SECRET=...      KIS_ACCOUNT=12345678-01    KIS_ENV=real
+KIWOOM_APP_KEY=...     KIWOOM_SECRET_KEY=...   KIWOOM_ENV=real
+```
+
+- 한국투자증권: 국내 + 해외(일본·홍콩·중국·미국). 대만은 지원하지 않는다.
+- 키움증권: 국내만 (REST API의 해외주식은 미국뿐).
+- 액면분할·무상증자·입고처럼 매매가 아닌 변동은 가져오지 않는다. 리포트에 ⚠️가 뜨면 `split` 줄을 직접 추가한다."""),
+code("""SYNC_FROM = None    # 예: "2024-01-01" 로 바꾸고 실행하면 그날부터 오늘까지 가져온다
+if SYNC_FROM:
+    from research import brokers
+    print(brokers.sync(SYNC_FROM))"""),
 code(SETUP + """
 from research import journal
 

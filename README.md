@@ -25,7 +25,7 @@ run.py 공시 원문 → 인용 검증된 팩트(F1…) ┤
 | [notebooks/03_market.ipynb](notebooks/03_market.ipynb) | 밸류체인 역할별 주가 성과(자국 지수 대비), 1년 주가 흐름, 밸류에이션, 최근 헤드라인 | 이상한 밸류에이션 값(PER 100배 초과·음수)에 확인 표시 |
 | [notebooks/04_journal.ipynb](notebooks/04_journal.ipynb) | 종목별 논거 파일(`journal/theses/*.yaml`)과 매매 기록(`journal/trades.csv`, 로컬 전용)으로 회차별 수익률·같은 기간 지수 대비·비중 계산 → 공개 리포트 [docs/portfolio.md](docs/portfolio.md)(%만) + 비공개 리포트(`outputs/`, 금액 포함). 예시: [docs/portfolio_example.md](docs/portfolio_example.md) | 틀리면 팔 조건을 최신 재무 지표로 자동 판정(🔴/🟢). 논거 없이 산 종목, 매매 기록과 어긋난 상태 표시. 매도 수량 초과 등 잘못된 기록은 오류. 공개 리포트에 수량·단가·금액이 안 나가는지 테스트로 확인 |
 | [run.py](run.py) | 공시·실적발표 원문(.txt) → 팩트 추출 → 논거 초안 → 회의적 검토 | 인용문이 원문에 실제로 있는지 확인. 02에서 `F1`, `F2` … 근거로 재사용 |
-| [research/](research/) | 공용 모듈: financials, playbook, market, debate, journal, llm, net | |
+| [research/](research/) | 공용 모듈: financials, playbook, market, debate, journal, brokers, llm, net | |
 | [prompts/](prompts/) | 01~03 run.py, 04 BEAR PM, 05 심판 | |
 | [tests/](tests/) | 회귀 테스트 (`python -m pytest tests -q`), 네트워크 없이 실행 | |
 | [tools/build_notebooks.py](tools/build_notebooks.py) | 노트북 세 개를 코드로 생성 | |
@@ -53,7 +53,9 @@ jupyter lab notebooks/      # 01 → 02 순서, 03은 아무 때나, 04는 매�
 2. 사고팔 때마다 `journal/trades.csv`에 한 줄 (`date,ticker,side,qty,price,fee`, 액면분할은 `side=split`, 형식은 [journal/examples/trades.csv](journal/examples/trades.csv))
 3. 04 노트북 실행 → `docs/portfolio.md` 갱신, 복기는 논거 파일의 `reviews:`에 날짜와 함께
 
-`journal/` 아래 csv는 예시를 빼고 git에 올라가지 않습니다. 논거 파일은 공개되므로 금액을 쓰지 마세요.
+`journal/` 아래 csv는 예시를 빼고 git에 올라가지 않습니다.
+
+**증권사에서 자동으로 가져오기** (조회 전용): `.env`에 키를 넣고 `python -m research.brokers 2024-01-01`. 한국투자증권(국내 + 일본·홍콩·중국·미국)과 키움증권(국내)을 지원합니다. 주문 기능은 코드에서 호출할 수 없게 막혀 있고, 다시 실행해도 중복되지 않으며 손으로 적은 줄은 유지됩니다. 키 이름은 04 노트북 0번 셀 참고. [research/brokers.py](research/brokers.py) 논거 파일은 공개되므로 금액을 쓰지 마세요.
 
 ### 공시 원문 파이프라인
 ```bash
